@@ -1,0 +1,1511 @@
+generator client {
+    provider = "prisma-client-js"
+    // binaryTargets = ["native", "debian-openssl-1.1.x"]
+}
+
+datasource db {
+    provider = "mysql"
+    // Prisma 7 no longer accepts `url` here: migrations read it from
+    // prisma.config.js, and the client gets an adapter (see src/config/db.js).
+}
+// use npx prisma db push
+// don't use npx prisma migrate dev --name new_mig
+
+enum OtpPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+  PHONE_VERIFICATION
+  LOGIN_VERIFICATION
+}
+
+enum OtpStatus {
+  USED
+  NOT_USED
+}
+
+enum LoginStatus {
+  SUCCESS
+  FAILED
+  BLOCKED
+}
+
+enum Role {
+  ADMIN
+  SUPERVISOR
+  PROCUREMENT
+  EMPLOYEE
+  GUEST
+}
+
+enum MaintenanceStatus {
+  PENDING
+  REVIEWED
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AdvanceStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PlantStatus {
+  RUNNING
+  MAINTENANCE
+  RUNNING_AND_MAINTENANCE
+}
+
+enum TransactionType {
+  IN
+  OUT
+}
+
+enum OrderStatus {
+  PENDING
+  INFORMED
+  PROCUREMENT_RECEIVED
+  ORDER_SENT
+  RECEIVED
+  VERIFIED
+  NEEDS_CLARIFICATION
+  REJECTED
+  CANCELLED
+}
+
+enum ReportStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+}
+
+enum ExpenseType {
+  MAINTENANCE
+  ADVANCE
+  PURCHASE
+  PT_CASH
+  DONATION
+  MISC
+  DISCOUNT
+}
+
+enum PurchasePaymentMethod {
+  CREDIT
+  CHEQUE
+  CASH_IN_COUNTER
+}
+
+enum PurchaseReviewStatus {
+  PENDING
+  REVIEWED
+}
+
+enum BalanceType {
+  CREDIT
+  ADVANCE
+}
+
+enum RegistryDefaultType {
+  STAFF_DEPARTMENT
+  SPARE_PART_CATEGORY
+}
+
+enum PaymentProvider {
+  ESEWA
+  KHALTI
+  FONEPAY
+  CASH
+  BANK_TRANSFER
+  OTHERS
+  // Used by MaintenanceShopPayment only. Adding a member is additive — no
+  // existing row changes — and the subscription checkout validator keeps its
+  // own narrower list, so this does not become a payable option there.
+  CHEQUE
+}
+
+enum PaymentMethod {
+  CASH
+  CHEQUE  
+}
+
+enum BillingInterval {
+    MONTHLY
+    QUARTERLY
+    HALF_YEARLY
+    YEARLY
+}
+
+enum SubscriptionStatus {
+    INCOMPLETE
+    ACTIVE
+    PAST_DUE
+    CANCELED
+    UNPAID
+}
+enum PaymentStatus {
+    PENDING
+    PAID
+    FAILED
+    REFUNDED
+}
+
+enum DeductionBy {
+  BANK
+  QR
+  CASH
+}
+
+enum SubscriptionPlanStatus {
+  BASIC
+  PREMIUM
+  ENTERPRISE
+  CUSTOM
+}
+
+enum DeviceType {
+  WEB
+  ANDROID
+  IOS
+  DESKTOP
+  OTHER
+}
+
+model User {
+  id                  String   @id @default(cuid())
+  email               String   @unique
+  password            String
+  name                String
+  mustChangePassword  Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships       OrganizationMember[]
+  loginAttempts     LoginAttempt[]
+  Otps              Otp[]
+  refreshTokens     RefreshToken[]
+  userSessions      UserSession[]
+  subscriptions      Subscription[] @relation("SubscriptionPurchaser")
+  subscriptionPayment     SubscriptionPayment[] @relation("PaymentRecordedBy")
+
+}
+
+model Otp {
+  id          String     @id @default(cuid())
+
+  userId      String
+  otpHash     String
+  purpose     OtpPurpose
+  expiresAt   DateTime
+  verifiedAt  DateTime?
+  used        OtpStatus
+
+  attempts    Int        @default(0)
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([userId])
+  @@index([purpose])
+  @@index([expiresAt])
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid()) @db.VarChar(191)
+
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+model LoginAttempt {
+  id          String      @id @default(cuid())
+
+  userId      String?
+  ipAddress   String?
+  userAgent   String?
+  status      LoginStatus
+
+  user        User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime    @default(now())
+
+  @@index([userId])
+  @@index([ipAddress])
+  @@index([createdAt])
+}
+
+// ---user session track---
+model UserSession {
+  id     String @id @default(cuid())
+  orgId  String
+  userId String
+
+  deviceId    String
+  deviceType  DeviceType @default(WEB)
+  deviceLabel String?
+
+  ipAddress String?
+  userAgent String?  @db.Text
+
+  revokedAt       DateTime? @db.DateTime(3)
+  lastActiveAt    DateTime  @default(now()) @db.DateTime(3)
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  updatedAt DateTime @updatedAt @db.DateTime(3)
+
+  @@unique([orgId, deviceId])
+  @@index([orgId, revokedAt])
+  @@index([userId, revokedAt])
+}
+
+// -------------------------------------------Subscription Models-------------------------------------------
+model SubscriptionPlan {
+  id          String @id @default(cuid())  
+  name        String
+  code        String @unique
+  description String?
+
+  price          Decimal         @db.Decimal(12, 2)
+  currency       String          @default("NPR") @db.VarChar(3)
+  membercount    Int             @default(0)
+  packagestatus  SubscriptionPlanStatus @default(BASIC)
+  billingInterval BillingInterval
+  trialDays      Int             @default(0)
+
+  isActive  Boolean @default(true)
+
+  subscriptions Subscription[]
+
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  updatedAt DateTime @updatedAt @db.DateTime(3)
+
+  @@index([name, description])
+}
+
+model Subscription {
+  id             String @id @default(cuid())  
+  organizationId String  
+  planId         String  
+
+  subscribedByUserId String  
+
+  status SubscriptionStatus @default(INCOMPLETE)
+
+  unitPrice       Decimal         @db.Decimal(12, 2)
+  currency        String          @default("NPR") @db.VarChar(3)
+  billingInterval BillingInterval
+
+  trialStartsAt DateTime? @db.DateTime(3)
+  trialEndsAt   DateTime? @db.DateTime(3)
+
+  SubscriptionStartsAt DateTime? @db.DateTime(3)
+  SubscriptionEndsAt   DateTime? @db.DateTime(3)
+
+  nextBillingAt DateTime? @db.DateTime(3)
+
+  autoRenew          Boolean   @default(false)
+  cancelledAt        DateTime? @db.DateTime(3)
+  cancellationReason String?
+
+  provider               PaymentProvider?
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  plan         SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  subscribedBy User             @relation("SubscriptionPurchaser", fields: [subscribedByUserId], references: [id], onDelete: Restrict)
+
+  payments SubscriptionPayment[]
+
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  updatedAt DateTime @updatedAt @db.DateTime(3)
+
+  @@index([organizationId, status])
+  @@index([planId])
+  @@index([subscribedByUserId])
+  @@index([status, SubscriptionEndsAt])
+}
+
+model SubscriptionPayment {
+  id             String  @id @default(cuid())  
+  organizationId String   
+  subscriptionId String   
+  invoiceId      String?  
+
+  provider PaymentProvider
+  status   PaymentStatus @default(PENDING)
+
+  amount         Decimal @db.Decimal(12, 2)
+  refundedAmount Decimal @default(0) @db.Decimal(12, 2)
+  currency       String  @default("NPR") @db.VarChar(3)
+
+  transactionId      String?
+  paymentMethodLabel String?
+
+  paidAt     DateTime? @db.DateTime(3)
+  refundedAt DateTime? @db.DateTime(3)
+
+  recordedByUserId String?  
+  notes            String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  recordedBy   User?        @relation("PaymentRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  updatedAt DateTime @updatedAt @db.DateTime(3)
+
+  @@index([subscriptionId])
+  @@index([invoiceId])
+  @@index([provider, transactionId])
+}
+
+// -------------------------------------------Organization Model-------------------------------------------
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  isActive  Boolean  @default(true)
+
+  advanceRequestLimit    Int?
+  additionalAdvanceLimit Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members                  OrganizationMember[]
+  userSessions             UserSession[]
+  subscriptionPayment      SubscriptionPayment[]
+  subscriptions            Subscription[]
+  departments              Department[]
+  staff                    Staff[]
+  leaves                   LeaveRequest[]
+  advances                 Advance[]
+  plants                   Plant[]
+  vehicles                 Vehicle[]
+  maintenances             VehicleMaintenance[]
+  purchases                Purchase[]
+  purchaseSuppliers        PurchaseSupplier[]
+  purchaseSupplierPayments PurchaseSupplierPayment[]
+  materials                RawMaterial[]
+  materialRates            MaterialRate[]
+  materialRateDetails      MaterialRateDetail[]
+  dailyPlantReports        DailyPlantReport[]
+  productCategories        ProductCategory[]
+  masterProducts           MasterProduct[]
+  inventoryTransactions    InventoryTransaction[]
+  tripRecords              DailyTripRecord[]
+  tripVehicles             TripVehicle[]
+  orderRecords             Orders[]
+  salesReports             DailySalesReport[]
+  saleEntries              DailySaleEntry[]
+  creditSales              DailyCreditSale[]
+  billSequence             BillSequence?
+  creditParties            CreditParty[]
+  creditTransactions       CreditTransaction[]
+  maintenanceShops         MaintenanceShop[]
+  maintenanceShopPayments  MaintenanceShopPayment[]
+  dailysalesreturns        DailySalesReturns[]
+  
+
+  @@index([slug])
+  @@index([name])
+}
+
+model OrganizationMember {
+  id           String  @id @default(cuid())
+  userId       String
+  orgId        String
+
+  role         Role
+  isActive     Boolean @default(true)
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org  Organization @relation(fields: [orgId], references: [id])
+
+  reviewedLeaves       LeaveRequest[]      @relation("LeaveReviewer")
+  approvedAdvances     Advance[]           @relation("AdvanceApproved")
+  additionalAdvances   Advance[]           @relation("AdditionalAdvanceApproved")
+  createdStaff         Staff[]             @relation("StaffCreatedBy")
+  createdLeaves        LeaveRequest[]      @relation("LeaveCreatedBy")
+  createdAdvances      Advance[]           @relation("AdvanceCreatedBy")
+  createdMaintenances  VehicleMaintenance[] @relation("MaintenanceCreatedBy")
+  reviewedMaintenances VehicleMaintenance[] @relation("MaintenanceReviewedBy")
+  createdVehicles      Vehicle[]           @relation("VehicleCreatedBy")
+  createdTrips         DailyTripRecord[]   @relation("TripCreatedBy")
+  updatedTrips         DailyTripRecord[]   @relation("TripUpdatedBy")
+  createdTripVehicles  TripVehicle[]       @relation("TripVehicleCreatedBy")
+  createdMaterials     RawMaterial[]       @relation("MaterialCreatedBy")
+  setRates             MaterialRate[]      @relation("RateSetBy")
+  createdPlants        Plant[]             @relation("PlantCreatedBy")
+  createdReports       DailyPlantReport[]  @relation("ReportCreatedBy")
+  checkedReports       DailyPlantReport[]  @relation("ReportCheckedBy")
+  createdCategories    ProductCategory[]   @relation("CategoryCreatedBy")
+  createdProducts      MasterProduct[]     @relation("ProductCreatedBy")
+  createdTransactions  InventoryTransaction[] @relation("TransactionCreatedBy")
+  ordersTo             Orders[]               @relation("OrderToMember")
+  createdOrders        Orders[]               @relation("OrderCreatedBy")
+  checkedOrders        Orders[]               @relation("OrderCheckedBy")
+  verifiedOrders       Orders[]               @relation("OrderVerifiedBy")
+  createdSalesReports  DailySalesReport[]     @relation("SalesReportCreatedBy")
+  createdSaleEntries   DailySaleEntry[]       @relation("SaleEntryCreatedBy")
+  approvedReports      DailySalesReport[]     @relation("ReportApprovedBy")
+  createdCreditSales   DailyCreditSale[]      @relation("CreditSaleCreatedBy")
+  createdCreditParties CreditParty[]          @relation("CreditPartyCreatedBy")
+  createdCreditTxns    CreditTransaction[]    @relation("CreditTxnCreatedBy")
+  createdPurchases     Purchase[]             @relation("PurchaseCreatedBy")
+  reviewedPurchases    Purchase[]             @relation("PurchaseReviewedBy")
+  createdPurchaseSuppliers         PurchaseSupplier[]         @relation("PurchaseSupplierCreatedBy")
+  createdPurchasePayments          PurchaseSupplierPayment[]  @relation("PurchasePaymentCreatedBy")
+  MaintenanceShopCreatedBy         MaintenanceShop[]          @relation("MaintenanceShopCreatedBy")
+  MaintenancePaymentCreatedBy      MaintenanceShopPayment[]   @relation("MaintenancePaymentCreatedBy")
+  DailySalesReturnCreatedBy        DailySalesReturns[]        @relation("CreditSaleReturnCreatedBy")
+
+  @@unique([userId, orgId])
+  @@index([orgId])
+  @@index([orgId, role])
+}
+
+// -------------------------------------------Department Model-------------------------------------------
+model Department {
+  id       String  @id @default(cuid())
+  orgId    String
+  name     String
+  code     String
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org   Organization @relation(fields: [orgId], references: [id])
+  staff Staff[]
+
+  @@unique([orgId, code])
+  @@index([orgId])
+}
+
+// -------------------------------------------Staff Model-------------------------------------------
+model Staff {
+  id           String    @id @default(cuid())
+  orgId        String
+  deptId       String
+  createdById  String
+
+  employeeCode String
+  fullName     String
+  designation  String
+  phone        String?
+  email        String?
+  address      String?
+  licensePhotoUrl       String?
+  citizenshipphotoUrl   String?
+  profilephotoUrl       String?
+
+  
+  familyContactName     String?
+  familyContactPhone    String?
+  familyContactRelation String?
+
+  joinDate     DateTime  @db.Date
+  isActive     Boolean   @default(true)
+  deletedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  drivenMaintenances VehicleMaintenance[] @relation("MaintenanceDriver")
+
+  org       Organization       @relation(fields: [orgId], references: [id])
+  dept      Department         @relation(fields: [deptId], references: [id])
+  createdBy OrganizationMember @relation("StaffCreatedBy", fields: [createdById], references: [id])
+
+  leaveRequests      LeaveRequest[]
+  advances           Advance[]
+  vehicleAssignments VehicleDriver[]
+  tripRecords        DailyTripRecord[]
+  ordersPlaced       Orders[]         @relation("OrderByStaff")
+  dailyExpenses      DailyExpense[]   @relation("ExpenseStaff")
+
+  @@unique([orgId, employeeCode])
+  @@index([orgId])
+  @@index([orgId, isActive])
+  @@index([orgId, deptId])
+}
+
+// -------------------------------------------Vehicle Model-------------------------------------------
+model Vehicle {
+  id           String  @id @default(cuid())
+  orgId        String
+  VehicleModel String
+  vehicleNo    String
+  vehicleType  String?
+  year         Int?
+  isActive     Boolean  @default(true)
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org       Organization       @relation(fields: [orgId], references: [id])
+  createdBy OrganizationMember @relation("VehicleCreatedBy", fields: [createdById], references: [id])
+
+  drivers      VehicleDriver[]
+  maintenances VehicleMaintenance[]
+
+  @@unique([orgId, vehicleNo])
+  @@index([orgId])
+  @@index([orgId, isActive])
+}
+
+model VehicleDriver {
+  id        String  @id @default(cuid())
+  vehicleId String
+  staffId   String
+  isPrimary Boolean @default(false)
+
+  assignedAt DateTime @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+  staff   Staff   @relation(fields: [staffId], references: [id])
+
+  @@unique([vehicleId, staffId])
+  @@index([vehicleId])
+  @@index([staffId])
+}
+
+// -------------------------------------------Vehicle Maintenance Model-------------------------------------------
+model VehicleMaintenance {
+  id            String  @id @default(cuid())
+  orgId         String
+  vehicleId     String?
+  plantId       String?
+  driverStaffId String?
+  createdById   String
+  reviewedById  String?
+
+  maintenanceDate DateTime          @db.Date
+  paymentDate     DateTime?         @db.Date  // actual bill payment date — expense fires on this date
+  odometer        Int?
+  nextServiceDate DateTime?         @db.Date
+  notes           String?           @db.Text
+  // A JSON array of upload paths, not a single value. Each path runs ~85
+  // characters, so the default VARCHAR(191) could not even hold two of them —
+  // MySQL truncated the JSON mid-string and every read then failed to parse.
+  // TEXT gives room for the full set (see MAX_VOUCHER_PHOTOS).
+  voucherPhotos   String?           @db.Text
+
+  totalCost       Decimal           @db.Decimal(10, 2) @default(0)
+  status          MaintenanceStatus @default(PENDING)
+
+  reviewedAt DateTime?
+  reviewNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org         Organization        @relation(fields: [orgId], references: [id])
+  vehicle     Vehicle?            @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  plant       Plant?              @relation(fields: [plantId], references: [id], onDelete: SetNull)
+  driverStaff Staff?              @relation("MaintenanceDriver", fields: [driverStaffId], references: [id])
+  createdBy   OrganizationMember  @relation("MaintenanceCreatedBy", fields: [createdById], references: [id])
+  reviewedBy  OrganizationMember? @relation("MaintenanceReviewedBy", fields: [reviewedById], references: [id])
+
+  items         MaintenanceItem[]
+  dailyExpenses DailyExpense[]
+  maintainancePayments MaintenanceShopPayment[]
+
+  @@index([orgId])
+  @@index([orgId, vehicleId])
+  @@index([orgId, plantId])
+  @@index([orgId, maintenanceDate])
+  @@index([orgId, paymentDate])
+  @@index([orgId, status])
+  @@index([orgId, vehicleId, maintenanceDate])
+  @@index([orgId, plantId, maintenanceDate])
+}
+
+model MaintenanceItem {
+  id            String  @id @default(cuid())
+  maintenanceId String
+  itemName      String
+  partSerialNo  String?
+  quantity      Int?
+  unitCost      Decimal? @db.Decimal(10, 2)
+  totalCost     Decimal  @db.Decimal(10, 2) @default(0)
+
+  maintenance VehicleMaintenance @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
+
+  @@index([maintenanceId])
+}
+
+model MaintenanceShop {
+  id        String  @id @default(cuid())
+  orgId     String
+  name      String
+  contactNo String?
+  panNo     String?
+  address   String?
+  isActive  Boolean @default(true)
+  notes     String?  @db.Text
+  createdById String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org       Organization       @relation(fields: [orgId], references: [id])
+  createdBy OrganizationMember @relation("MaintenanceShopCreatedBy", fields: [createdById], references: [id])
+
+  maintenancepayment    MaintenanceShopPayment[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+}
+
+model MaintenanceShopPayment {
+  id            String  @id @default(cuid())
+  orgId         String
+  shopId        String
+  maintenanceId String?
+  paymentDate   DateTime @db.Date
+  paidamount             Decimal  @db.Decimal(10, 2)
+  remainingamount        Decimal  @db.Decimal(10, 2)
+  // Only CASH and CHEQUE are offered on the maintenance payment form. The
+  // column keeps the wider PaymentProvider enum so historical rows written
+  // with the old options (eSewa, Khalti, FonePay, bank transfer) stay
+  // readable; the API rejects those values on new writes.
+  paymentMethod PaymentProvider @default(CASH)
+  // Populated only when paymentMethod is CHEQUE. `chequeamount` is the value
+  // written on the cheque and is mirrored into `paidamount`, so a cheque
+  // reduces the linked maintenance record's outstanding balance exactly the
+  // way a cash payment does.
+  chequedetail  String?  @db.Text
+  chequeamount  Decimal? @db.Decimal(10, 2)
+  voucherPath   String?  @db.Text
+  remarks       String?  @db.Text
+  createdById   String
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  org         Organization        @relation(fields: [orgId], references: [id])
+  shop        MaintenanceShop     @relation(fields: [shopId], references: [id])
+  maintenance VehicleMaintenance? @relation(fields: [maintenanceId], references: [id], onDelete: SetNull)
+  createdBy   OrganizationMember  @relation("MaintenancePaymentCreatedBy", fields: [createdById], references: [id])
+
+  @@index([orgId])
+  @@index([orgId, shopId])
+  @@index([orgId, maintenanceId])
+}
+
+// -------------------------------------------Plant Model-------------------------------------------
+// this table is used in assets.tsx and plant.tsx page
+model Plant {
+  id          String   @id @default(cuid())
+  orgId       String
+  name        String
+  description String?
+  location    String?
+  isActive    Boolean  @default(true)
+  createdById String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org       Organization       @relation(fields: [orgId], references: [id])
+  createdBy OrganizationMember @relation("PlantCreatedBy", fields: [createdById], references: [id])
+
+  reports      DailyPlantReport[]
+  maintenances VehicleMaintenance[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@index([orgId, isActive])
+}
+
+model DailyPlantReport {
+  id      String      @id @default(cuid())
+  orgId   String
+  plantId String
+  date    DateTime    @db.Date
+  status  PlantStatus
+
+  plantStartTime    DateTime?
+  plantStopTime     DateTime?
+  plantWorkingHours Decimal?  @db.Decimal(5, 2)
+
+  maintenanceDescription String?   @db.Text
+  maintenanceStartTime   DateTime?
+  maintenanceEndTime     DateTime?
+  maintenanceHours       Decimal?  @db.Decimal(5, 2)
+
+  remarks     String?  @db.Text
+  createdById String
+  checkedById String?
+  checkedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org       Organization        @relation(fields: [orgId], references: [id])
+  plant     Plant               @relation(fields: [plantId], references: [id])
+  createdBy OrganizationMember  @relation("ReportCreatedBy", fields: [createdById], references: [id])
+  checkedBy OrganizationMember? @relation("ReportCheckedBy", fields: [checkedById], references: [id])
+
+  components PlantMaintenanceComponent[]
+
+  @@unique([orgId, plantId, date])
+  @@index([orgId])
+  @@index([orgId, plantId])
+  @@index([orgId, date])
+  @@index([orgId, plantId, date])
+  @@index([orgId, status])
+}
+
+model PlantMaintenanceComponent {
+  id       String  @id @default(cuid())
+  reportId String
+  name     String
+  details  String? @db.Text
+  serialNo String?
+
+  report DailyPlantReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+}
+
+// -------------------------------------------Spare Part Category Model-------------------------------------------
+model ProductCategory {
+  id          String   @id @default(cuid())
+  orgId       String
+  name        String
+  isActive    Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org       Organization       @relation(fields: [orgId], references: [id])
+  createdBy OrganizationMember @relation("CategoryCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([orgId, name])
+  @@index([orgId])
+}
+
+// this table belongs to spare parts (assets.tsx page spare parts tab)
+model MasterProduct {
+  id          String  @id @default(cuid())
+  orgId       String
+  productCode String
+  name        String
+  category    String?
+  size        String?
+  serialNo    String?
+  location    String?
+  reorderLevel Int    @default(0)
+
+  supplierAName String?
+  supplierARate Decimal? @db.Decimal(10, 2)
+  supplierBName String?
+  supplierBRate Decimal? @db.Decimal(10, 2)
+  supplierCName String?
+  supplierCRate Decimal? @db.Decimal(10, 2)
+
+  photo1 String?
+  photo2 String?
+  photo3 String?
+
+  isActive    Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org       Organization       @relation(fields: [orgId], references: [id])
+  createdBy OrganizationMember @relation("ProductCreatedBy", fields: [createdById], references: [id])
+
+  transactions InventoryTransaction[]
+  orderRecords Orders[]
+
+  @@unique([orgId, productCode])
+  @@index([orgId])
+  @@index([orgId, isActive])
+  @@index([orgId, category])
+  @@index([orgId, name])
+  @@index([orgId, productCode])
+}
+
+// inventory page (inventory.tsx)
+model InventoryTransaction {
+  id          String          @id @default(cuid())
+  orgId       String
+  productId   String
+  type        TransactionType
+  quantity    Int
+  date        DateTime        @db.Date
+  remarks     String?
+  createdById String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org       Organization       @relation(fields: [orgId], references: [id])
+  product   MasterProduct      @relation(fields: [productId], references: [id])
+  createdBy OrganizationMember @relation("TransactionCreatedBy", fields: [createdById], references: [id])
+
+  @@index([orgId])
+  @@index([orgId, productId])
+  @@index([orgId, date])
+  @@index([orgId, productId, date])
+  @@index([orgId, type])
+}
+
+// -------------------------------------------Leave Request Model-------------------------------------------
+// staff leave request (staff page)
+model LeaveRequest {
+  id           String      @id @default(cuid())
+  orgId        String
+  staffId      String
+  createdById  String
+  reviewedById String?
+
+  leaveFrom    DateTime    @db.Date
+  leaveTo      DateTime    @db.Date
+  numberOfDays Int
+  reason       String      @db.Text
+  status       LeaveStatus @default(PENDING)
+  leaveSlipUrl String?
+
+  reviewedAt DateTime?
+  reviewNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org        Organization        @relation(fields: [orgId], references: [id])
+  staff      Staff               @relation(fields: [staffId], references: [id])
+  createdBy  OrganizationMember  @relation("LeaveCreatedBy", fields: [createdById], references: [id])
+  reviewedBy OrganizationMember? @relation("LeaveReviewer", fields: [reviewedById], references: [id])
+
+  @@index([orgId])
+  @@index([orgId, staffId])
+  @@index([orgId, status])
+  @@index([orgId, leaveFrom])
+}
+
+// -------------------------------------------Advance Model-------------------------------------------
+// staff management page advance request
+model Advance {
+  id          String @id @default(cuid())
+  orgId       String
+  staffId     String
+  createdById String
+
+  advanceMonth Int
+  advanceYear  Int
+
+  advanceTakenDate DateTime?   @db.Date
+  amount         Decimal       @db.Decimal(10, 2)
+  reason         String?       @db.Text
+  status         AdvanceStatus @default(PENDING)
+  paymentMethod  PaymentMethod @default(CASH)
+  chequeDetails  String?       @db.Text
+  chequeamount   Decimal?      @db.Decimal(10, 2)
+  approvedById   String?
+  approvedAt     DateTime?
+  paymentSlipUrl String?
+
+  additionalAmount        Decimal?       @db.Decimal(10, 2)
+  additionalReason        String?        @db.Text
+  additionalStatus        AdvanceStatus?
+  // Mirrors the primary advance's cheque handling: a cheque additional advance
+  // stores `additionalAmount: 0` and carries its value in
+  // `additionalChequeamount`, so it never reaches the cash expense ledger.
+  additionalPaymentMethod PaymentMethod? @default(CASH)
+  additionalChequeDetails String?        @db.Text
+  additionalChequeamount  Decimal?       @db.Decimal(10, 2)
+  additionalApprovedById  String?
+  additionalApprovedAt    DateTime?
+  additionalRequestedAt   DateTime?
+  additionalAdvanceTakenDate DateTime? @db.Date
+  additionalPaymentSlipUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dailyExpenses DailyExpense[]
+
+  org                  Organization        @relation(fields: [orgId], references: [id])
+  staff                Staff               @relation(fields: [staffId], references: [id])
+  createdBy            OrganizationMember  @relation("AdvanceCreatedBy", fields: [createdById], references: [id])
+  approvedBy           OrganizationMember? @relation("AdvanceApproved", fields: [approvedById], references: [id])
+  additionalApprovedBy OrganizationMember? @relation("AdditionalAdvanceApproved", fields: [additionalApprovedById], references: [id])
+
+  @@unique([orgId, staffId, advanceMonth, advanceYear])
+  @@index([orgId])
+  @@index([orgId, staffId])
+  @@index([orgId, advanceYear, advanceMonth])
+}
+
+// -------------------------------------------Purchase Model-------------------------------------------
+// this table belongs to (purchase.tsx) page
+model Purchase {
+  id            String                @id @default(cuid())
+  orgId         String
+  createdById   String
+  supplierId    String?
+  serialNo      String
+
+  purchaseDate  DateTime              @db.Date
+  partyName     String
+  contactNo     String
+  panNo         String?
+  address       String?
+  particular    String
+  amount        Decimal               @db.Decimal(10, 2)
+  billNo        String
+  billFilePath  String
+  paymentMethod PurchasePaymentMethod
+  paymentDate   DateTime?             @db.Date
+  paymentAmount Decimal?              @db.Decimal(10, 2)
+  voucherPath   String?
+  status        PurchaseReviewStatus  @default(PENDING)
+  reviewedById  String?
+  reviewedAt    DateTime?
+  reviewNote    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org        Organization        @relation(fields: [orgId], references: [id])
+  createdBy  OrganizationMember  @relation("PurchaseCreatedBy", fields: [createdById], references: [id])
+  reviewedBy OrganizationMember? @relation("PurchaseReviewedBy", fields: [reviewedById], references: [id])
+  supplier   PurchaseSupplier?   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+
+  dailyExpenses DailyExpense[]
+  payments      PurchaseSupplierPayment[]
+
+  @@unique([orgId, serialNo])
+  @@index([orgId])
+  @@index([orgId, purchaseDate])
+  @@index([orgId, paymentDate])
+  @@index([orgId, status])
+  @@index([supplierId])
+}
+
+model PurchaseSupplier {
+  id            String   @id @default(cuid())
+  orgId         String
+  name          String
+  contactNo     String?
+  panNo         String?
+  address       String?
+  notes         String?  @db.Text
+  isActive      Boolean  @default(true)
+  createdById   String
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  org        Organization        @relation(fields: [orgId], references: [id])
+  createdBy  OrganizationMember  @relation("PurchaseSupplierCreatedBy", fields: [createdById], references: [id])
+  purchases  Purchase[]
+  payments   PurchaseSupplierPayment[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@index([orgId, isActive])
+}
+
+model PurchaseSupplierPayment {
+  id            String   @id @default(cuid())
+  orgId         String
+  supplierId    String
+  purchaseId    String?
+  paymentDate   DateTime @db.Date
+  amount        Decimal  @db.Decimal(10, 2)
+  paymentMethod PurchasePaymentMethod @default(CASH_IN_COUNTER)
+  voucherPath   String?  @db.Text
+  billPaths     String?  @db.Text
+  voucherPaths  String?  @db.Text
+  notes         String?  @db.Text
+  createdById   String
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  org        Organization        @relation(fields: [orgId], references: [id])
+  supplier   PurchaseSupplier    @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  purchase   Purchase?           @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
+  createdBy  OrganizationMember  @relation("PurchasePaymentCreatedBy", fields: [createdById], references: [id])
+
+  @@index([orgId])
+  @@index([supplierId])
+  @@index([purchaseId])
+}
+
+// -------------------------------------------Daily Expense Model-------------------------------------------
+model DailyExpense {
+  id         String      @id @default(cuid())
+  reportId   String
+  type       ExpenseType
+  particular String
+  amount     Decimal     @db.Decimal(10,2)
+  partyName  String?
+
+  maintenanceId String?
+  advanceId     String?
+  purchaseId    String?
+  staffId       String?
+
+  report      DailySalesReport    @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  maintenance VehicleMaintenance? @relation(fields: [maintenanceId], references: [id])
+  advance     Advance?            @relation(fields: [advanceId], references: [id])
+  purchase    Purchase?           @relation(fields: [purchaseId], references: [id])
+  staff       Staff?              @relation("ExpenseStaff", fields: [staffId], references: [id])
+
+  @@index([reportId])
+  @@index([purchaseId])
+}
+
+
+// -------------------------------------------Raw Materials Model-------------------------------------------
+model RawMaterial {
+  id          String  @id @default(cuid())
+  orgId       String
+  name        String
+  description String? @db.Text
+  isActive    Boolean @default(true)
+  createdById String
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org       Organization       @relation(fields: [orgId], references: [id])
+  createdBy OrganizationMember @relation("MaterialCreatedBy", fields: [createdById], references: [id])
+
+  rates              MaterialRate[]
+  tripRecords        DailyTripRecord[]
+  dailySaleItems     DailySaleItem[]
+  dailySaleEntries   DailySaleEntry[]
+  creditPartyRates   CreditPartyRate[]
+  creditTransactions CreditTransaction[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@index([orgId, isActive])
+}
+
+// -------------------------------------------Material Rate Model-------------------------------------------
+model MaterialRate {
+  id                 String  @id @default(cuid())
+  orgId              String
+  materialId         String
+  referenceVehicleId String
+  basePrice          Decimal @db.Decimal(10, 2)
+  setById            String
+  setAt              DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org              Organization       @relation(fields: [orgId], references: [id])
+  material         RawMaterial        @relation(fields: [materialId], references: [id])
+  referenceVehicle TripVehicle        @relation("ReferenceVehicle", fields: [referenceVehicleId], references: [id])
+  setBy            OrganizationMember @relation("RateSetBy", fields: [setById], references: [id])
+
+  details MaterialRateDetail[]
+
+  @@unique([orgId, materialId, referenceVehicleId])
+  @@index([orgId])
+  @@index([orgId, materialId])
+}
+
+model MaterialRateDetail {
+  id            String @id @default(cuid())
+  orgId         String
+  rateId        String
+  tripVehicleId String
+
+  calculatedRate  Decimal @db.Decimal(10, 2)
+  internalTotal   Decimal @db.Decimal(10, 2)
+  internalTaxable Decimal @db.Decimal(10, 2)
+  internalVat     Decimal @db.Decimal(10, 2)
+  externalRate    Decimal @db.Decimal(10, 2)
+
+  snapshotVolume    Decimal @db.Decimal(10, 3)
+  snapshotBasePrice Decimal @db.Decimal(10, 2)
+  snapshotRefVolume Decimal @db.Decimal(10, 3)
+
+  calculatedAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  org         Organization @relation(fields: [orgId], references: [id])
+  rate        MaterialRate @relation(fields: [rateId], references: [id])
+  tripVehicle TripVehicle  @relation(fields: [tripVehicleId], references: [id])
+
+  @@unique([rateId, tripVehicleId])
+  @@index([orgId])
+  @@index([orgId, rateId])
+  @@index([orgId, tripVehicleId])
+}
+
+// -------------------------------------------Material Trip Model-------------------------------------------
+model TripVehicle {
+  id           String  @id @default(cuid())
+  orgId        String
+  vehicleModel String
+  volume       Decimal @db.Decimal(10, 3)
+
+  isActive    Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org       Organization       @relation(fields: [orgId], references: [id])
+  createdBy OrganizationMember @relation("TripVehicleCreatedBy", fields: [createdById], references: [id])
+
+  basePriceRates   MaterialRate[]       @relation("ReferenceVehicle")
+  calculatedRates  MaterialRateDetail[]
+  dailySaleItems   DailySaleItem[]
+  dailySaleEntries DailySaleEntry[]
+  creditPartyRates CreditPartyRate[]
+  creditTransactions CreditTransaction[]
+
+  @@unique([orgId, vehicleModel])
+  @@index([orgId])
+  @@index([orgId, isActive])
+}
+
+// -------------------------------------------Orders Model-------------------------------------------
+// this belongs to orders page (orders.tsx)
+model Orders {
+  id        String   @id @default(cuid())
+  orgId     String
+  productId String
+  date      DateTime @db.Date
+
+  productCode String
+  productName String
+  size        String?
+
+  quantity Int
+  details  String? @db.Text
+  usedFor  String?
+  statusRemark String? @db.Text
+
+  orderByStaffId  String
+  orderToMemberId String
+
+  status OrderStatus @default(PENDING)
+
+  informed    Boolean   @default(false)
+  checkedById String?
+
+  orderSentDate DateTime? @db.Date
+  goodsReceivedDate DateTime? @db.Date
+
+  verifiedById String?
+  verifiedAt   DateTime?
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org           Organization        @relation(fields: [orgId], references: [id])
+  product       MasterProduct       @relation(fields: [productId], references: [id])
+  orderByStaff  Staff               @relation("OrderByStaff", fields: [orderByStaffId], references: [id])
+  orderToMember OrganizationMember  @relation("OrderToMember", fields: [orderToMemberId], references: [id])
+  createdBy     OrganizationMember  @relation("OrderCreatedBy", fields: [createdById], references: [id])
+  checkedBy     OrganizationMember? @relation("OrderCheckedBy", fields: [checkedById], references: [id])
+  verifiedBy    OrganizationMember? @relation("OrderVerifiedBy", fields: [verifiedById], references: [id])
+
+  @@index([orgId])
+  @@index([orgId, date])
+  @@index([orgId, status])
+  @@index([orgId, productId])
+}
+
+// -------------------------------------------Trip Raw materials model-------------------------------------------
+// this model belongs to /trips/rawmaterial.tsx page
+model RawMaterialTrip {
+  id           String @id @default(cuid())
+  tripRecordId String
+  hour         Int
+  tripCount    Int
+
+  tripRecord DailyTripRecord @relation(fields: [tripRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([tripRecordId, hour])
+  @@index([tripRecordId])
+}
+
+model DailyTripRecord {
+  id          String    @id @default(cuid())
+  orgId       String
+  date        DateTime  @db.Date
+  staffId     String
+  materialId  String?
+  createdById String
+  updatedById String?
+
+  dailyTotal Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org       Organization        @relation(fields: [orgId], references: [id])
+  staff     Staff               @relation(fields: [staffId], references: [id])
+  material  RawMaterial?        @relation(fields: [materialId], references: [id])
+  createdBy OrganizationMember  @relation("TripCreatedBy", fields: [createdById], references: [id])
+  updatedBy OrganizationMember? @relation("TripUpdatedBy", fields: [updatedById], references: [id])
+
+  tripEntries RawMaterialTrip[]
+
+  @@index([orgId])
+  @@index([orgId, date])
+  @@index([orgId, staffId])
+  @@index([orgId, materialId])
+  @@index([orgId, date, staffId])
+}
+
+// -------------------------------------------Credit Party Model-------------------------------------------\
+// sales page (sales.tsx) daily sales page ma internal server error aaudaixa fix that
+model DailySalesReport {
+  id    String   @id @default(cuid())
+  orgId String
+  date  DateTime @db.Date
+
+  lastClosingAmount Decimal @db.Decimal(10,2) @default(0)
+  bankDepositParty  String?
+  bankDepositAmount Decimal @db.Decimal(10,2) @default(0)
+  customerDeposit   Decimal @db.Decimal(10,2) @default(0)
+  cashParticular    String?
+  cash              Decimal @db.Decimal(10,2) @default(0)
+  cashReceiveExtraParticular String?
+  cashReceiveExtra  Decimal @db.Decimal(10,2) @default(0)
+  onlineTransfer    Decimal @db.Decimal(10,2) @default(0)
+  voidCount         Int     @default(0)
+  closingBillNumber Int?
+
+  totalExpenses    Decimal @db.Decimal(10,2) @default(0)
+  totalCashReceive Decimal @db.Decimal(10,2) @default(0)
+  todaysSales      Decimal @db.Decimal(10,2) @default(0)
+  totalCreditSales Decimal @db.Decimal(10,2) @default(0)
+  cashInCounter    Decimal @db.Decimal(10,2) @default(0)
+  billNumber       String? @unique
+
+  status       ReportStatus @default(DRAFT)
+  submittedAt  DateTime?
+  approvedById String?
+  approvedAt   DateTime?
+  createdById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  org        Organization        @relation(fields: [orgId], references: [id])
+  createdBy  OrganizationMember  @relation("SalesReportCreatedBy", fields: [createdById], references: [id])
+  approvedBy OrganizationMember? @relation("ReportApprovedBy", fields: [approvedById], references: [id])
+
+  expenses           DailyExpense[]
+  bankDeposits       DailyBankDeposit[]
+  sales              DailySaleItem[]
+  saleEntries        DailySaleEntry[]
+  creditSales        DailyCreditSale[]
+  creditTransactions CreditTransaction[]
+  salesReturns       DailySalesReturns[]
+
+  @@unique([orgId, date])
+  @@index([orgId])
+  @@index([orgId, date])
+  @@index([orgId, status])
+}
+
+model DailyBankDeposit {
+  id       String  @id @default(cuid())
+  reportId String
+  party    String
+  amount   Decimal @db.Decimal(10,2)
+
+  report DailySalesReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+}
+
+model DailySaleItem {
+  id            String  @id @default(cuid())
+  reportId      String
+  materialId    String
+  tripVehicleId String
+  quantity      Int
+  rateUsed      Decimal @db.Decimal(10,2)
+  amount        Decimal @db.Decimal(10,2)
+  billNumber    String?
+
+  report      DailySalesReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  material    RawMaterial      @relation(fields: [materialId], references: [id])
+  tripVehicle TripVehicle      @relation(fields: [tripVehicleId], references: [id])
+
+  @@index([reportId])
+}
+
+model DailySaleEntry {
+  id            String   @id @default(cuid())
+  orgId         String
+  reportId      String?
+  date          DateTime @db.Date
+  materialId    String
+  tripVehicleId String
+  quantity      Int
+  rateUsed      Decimal  @db.Decimal(10,2)
+  amount        Decimal  @db.Decimal(10,2)
+  createdById   String
+  createdAt     DateTime @default(now())
+
+  org         Organization        @relation(fields: [orgId], references: [id])
+  report      DailySalesReport?   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  material    RawMaterial         @relation(fields: [materialId], references: [id])
+  tripVehicle TripVehicle         @relation(fields: [tripVehicleId], references: [id])
+  createdBy   OrganizationMember  @relation("SaleEntryCreatedBy", fields: [createdById], references: [id])
+
+  @@index([reportId])
+  @@index([orgId, date])
+}
+
+model DailyCreditSale {
+  id          String   @id @default(cuid())
+  orgId       String
+  reportId    String?
+  date        DateTime @db.Date
+  partyName   String
+  billNo      String?
+  goodsName   String?
+  amount      Decimal  @db.Decimal(10,2)
+  createdById String
+  createdAt   DateTime @default(now())
+
+  org       Organization       @relation(fields: [orgId], references: [id])
+  report    DailySalesReport?  @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  createdBy OrganizationMember @relation("CreditSaleCreatedBy", fields: [createdById], references: [id])
+
+  @@index([reportId])
+  @@index([orgId, date])
+}
+
+model BillSequence {
+  id             String @id @default(cuid())
+  orgId          String @unique
+  lastBillNumber Int    @default(0)
+
+  org Organization @relation(fields: [orgId], references: [id])
+}
+
+model DailySalesReturns {
+  id          String   @id @default(cuid())
+  orgId       String
+  reportId    String?
+  date        DateTime @db.Date
+  partyName   String
+  billNo      String?
+  particular  String?
+  amount      Decimal  @db.Decimal(10,2)
+  deductionBy DeductionBy
+  remarks     String?  @db.Text
+  createdById String
+  createdAt   DateTime @default(now())
+
+  org       Organization       @relation(fields: [orgId], references: [id])
+  report    DailySalesReport?  @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  createdBy OrganizationMember @relation("CreditSaleReturnCreatedBy", fields: [createdById], references: [id])
+
+  @@index([reportId])
+}
+
+// -------------------------------------------Credit Party Model-------------------------------------------
+// tables used in creditsales page (creditsales.tsx)
+model CreditParty {
+  id            String      @id @default(cuid())
+  orgId         String
+  name          String
+  panNo         String?
+  address       String?
+  contactPerson String?
+  contactNo     String?
+  balanceType   BalanceType @default(CREDIT)
+  creditBalance Decimal     @db.Decimal(12, 2) @default(0)
+  isActive      Boolean     @default(true)
+  notes         String?     @db.Text
+  createdById   String
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  org       Organization       @relation(fields: [orgId], references: [id])
+  createdBy OrganizationMember @relation("CreditPartyCreatedBy", fields: [createdById], references: [id])
+
+  rates        CreditPartyRate[]
+  transactions CreditTransaction[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@index([orgId, isActive])
+}
+
+model CreditPartyRate {
+  id            String  @id @default(cuid())
+  creditPartyId String
+  tripVehicleId String
+  materialId    String
+  ratePerTrip   Decimal @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  creditParty CreditParty @relation(fields: [creditPartyId], references: [id], onDelete: Cascade)
+  tripVehicle TripVehicle @relation(fields: [tripVehicleId], references: [id])
+  material    RawMaterial @relation(fields: [materialId], references: [id])
+
+  @@unique([creditPartyId, tripVehicleId, materialId])
+  @@index([creditPartyId])
+}
+
+model CreditTransaction {
+  id            String   @id @default(cuid())
+  orgId         String
+  creditPartyId String
+  reportId      String?
+  date          DateTime @db.Date
+  tripVehicleId String
+  materialId    String
+  trips         Int
+  rateUsed      Decimal  @db.Decimal(10, 2)
+  amount        Decimal  @db.Decimal(12, 2)
+  billNo        String?
+  notes         String?  @db.Text
+  createdById   String
+  createdAt     DateTime @default(now())
+
+  org         Organization       @relation(fields: [orgId], references: [id])
+  creditParty CreditParty        @relation(fields: [creditPartyId], references: [id])
+  report      DailySalesReport?  @relation(fields: [reportId], references: [id], onDelete: SetNull)
+  tripVehicle TripVehicle        @relation(fields: [tripVehicleId], references: [id])
+  material    RawMaterial        @relation(fields: [materialId], references: [id])
+  createdBy   OrganizationMember @relation("CreditTxnCreatedBy", fields: [createdById], references: [id])
+
+  @@index([orgId])
+  @@index([orgId, date])
+  @@index([orgId, creditPartyId])
+  @@index([reportId])
+}

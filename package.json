@@ -1,0 +1,43 @@
+{
+  "name": "nepaquarry",
+  "version": "6.0.0",
+  "description": "Backend for Nepaquarry",
+  "license": "ISC",
+  "author": "Avi",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "build": "tsc",
+    "build:cpanel": "npm run db:generate && npm run build",
+    "start": "node dist/server.js",
+    "start:cpanel": "npm run build:cpanel && npm run start",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev"
+  },
+  "dependencies": {
+    "@prisma/adapter-mariadb": "^7.9.1",
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
+    "@prisma/extension-accelerate": "^3.0.1",
+    "bcrypt": "^6.0.0",
+    "cookies": "^0.9.1",
+    "cors": "^2.8.6",
+    "decimal.js": "^10.6.0",
+    "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.6.2",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.2.0",
+    "nodemailer": "^9.0.5",
+    "nodemon": "^3.1.14",
+    "pdfkit": "^0.15.2",
+    "pg": "^8.22.0",
+    "prisma": "^7.9.1",
+    "rate-limiter": "^0.2.0",
+    "zod": "^4.4.3"
+  }
+}
