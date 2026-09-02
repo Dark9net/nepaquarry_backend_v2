@@ -1,8 +1,25 @@
 const prisma = require("../config/db");
 const { AppError } = require("../lib/error");
+const { storedShopPaymentVoucherPaths, removeStoredShopPaymentVoucherFile } = require("../middleware/maintenanceUploads");
 
 const shopInclude = {
   createdBy: { select: { id: true, user: { select: { name: true } } } },
+  // Every job billed to this shop — set directly on the job at creation, so
+  // "Total billed" reflects what's actually owed even before any payment
+  // exists, rather than only what a payment happens to reference. Also
+  // powers the ledger's "Jobs" tab (mirrors a supplier's `purchases`).
+  maintenanceRecords: {
+    orderBy: { maintenanceDate: "desc" },
+    select: {
+      id: true,
+      maintenanceDate: true,
+      totalCost: true,
+      billPath: true,
+      vehicle: { select: { id: true, VehicleModel: true, vehicleNo: true } },
+      plant: { select: { id: true, name: true, location: true } },
+      maintainancePayments: { select: { paidamount: true } },
+    },
+  },
   maintenancepayment: {
     orderBy: { paymentDate: "desc" },
     include: {
@@ -22,20 +39,10 @@ const shopInclude = {
 
 const notFound = () => new AppError(404, "Maintenance shop not found");
 
-// Paid total comes from this shop's own payments. Billed total counts each
-// linked maintenance record once, since several payments (installments) can
-// point at the same record.
 const withTotals = (shop) => {
   const payments = shop.maintenancepayment ?? [];
   const totalPaidAmount = payments.reduce((sum, payment) => sum + Number(payment.paidamount || 0), 0);
-
-  const billedByMaintenance = new Map();
-  payments.forEach((payment) => {
-    if (payment.maintenance) {
-      billedByMaintenance.set(payment.maintenance.id, Number(payment.maintenance.totalCost || 0));
-    }
-  });
-  const totalBilledAmount = [...billedByMaintenance.values()].reduce((sum, value) => sum + value, 0);
+  const totalBilledAmount = (shop.maintenanceRecords ?? []).reduce((sum, record) => sum + Number(record.totalCost || 0), 0);
 
   return {
     ...shop,
@@ -231,34 +238,88 @@ const cheque = (data) => {
   };
 };
 
-const createPayment = async ({ orgId, memberId, data }) => {
+/*
+ * Pays down the shop's total outstanding balance directly, allocating the
+ * amount across that shop's own maintenance records oldest-first — the same
+ * FIFO pattern as a supplier-ledger payment settling a supplier's oldest
+ * purchases (see purchaseSuppliers.service.js#createSupplierPayment). Every
+ * job already declares its shop at creation (VehicleMaintenance.shopId is
+ * required), so this can never touch a job billed to a different shop. A
+ * payment that covers more than one job is split into one
+ * `maintenanceShopPayment` row per job it settles, all sharing the same
+ * date/method/vouchers, so the maintenance list's own due badge and payment
+ * ledger pick the allocation up automatically.
+ */
+const createPayment = async ({ orgId, memberId, data, voucherFiles = [] }) => {
   const shop = await prisma.maintenanceShop.findFirst({ where: { id: data.shopId, orgId } });
   if (!shop) throw notFound();
 
+  if (voucherFiles.length === 0) {
+    throw new AppError(400, "At least one voucher upload is required when recording a payment.");
+  }
+
+  const records = await prisma.vehicleMaintenance.findMany({
+    where: { orgId, shopId: data.shopId },
+    include: { maintainancePayments: { select: { paidamount: true } } },
+    orderBy: [{ maintenanceDate: "asc" }, { createdAt: "asc" }],
+  });
+
+  const outstanding = records
+    .map((record) => ({
+      id: record.id,
+      due: Number(record.totalCost) - record.maintainancePayments.reduce((sum, payment) => sum + Number(payment.paidamount || 0), 0),
+    }))
+    .filter((record) => record.due > 0);
+
+  const totalDue = outstanding.reduce((sum, record) => sum + record.due, 0);
+  if (totalDue <= 0) throw new AppError(400, "This shop has no outstanding balance.");
+
   const amounts = cheque(data);
+  if (amounts.paidamount > totalDue) {
+    throw new AppError(400, "Payment amount cannot exceed the outstanding due balance.");
+  }
 
-  const remainingamount = await remainingFor({
-    orgId,
-    maintenanceId: data.maintenanceId,
-    paidNow: amounts.paidamount,
-  });
+  const allocations = [];
+  let remaining = amounts.paidamount;
+  for (const record of outstanding) {
+    if (remaining <= 0) break;
+    const amount = Math.min(record.due, remaining);
+    allocations.push({
+      maintenanceId: record.id,
+      amount,
+      remainingAfter: Number((record.due - amount).toFixed(2)),
+    });
+    remaining -= amount;
+  }
 
-  return prisma.maintenanceShopPayment.create({
-    data: {
-      orgId,
-      shopId: data.shopId,
-      maintenanceId: data.maintenanceId ?? null,
-      paymentDate: asDate(data.paymentDate),
-      paidamount: amounts.paidamount,
-      remainingamount,
-      paymentMethod: data.paymentMethod,
-      chequedetail: amounts.chequedetail,
-      chequeamount: amounts.chequeamount,
-      remarks: data.remarks ?? null,
-      createdById: memberId,
-    },
-    include: paymentInclude,
-  });
+  const voucherPaths = JSON.stringify(storedShopPaymentVoucherPaths(voucherFiles));
+
+  try {
+    return await prisma.$transaction(
+      allocations.map((allocation) =>
+        prisma.maintenanceShopPayment.create({
+          data: {
+            orgId,
+            shopId: data.shopId,
+            maintenanceId: allocation.maintenanceId,
+            paymentDate: asDate(data.paymentDate),
+            paidamount: allocation.amount,
+            remainingamount: allocation.remainingAfter,
+            paymentMethod: data.paymentMethod,
+            chequedetail: amounts.chequedetail,
+            chequeamount: amounts.chequeamount,
+            voucherPaths,
+            remarks: data.remarks ?? null,
+            createdById: memberId,
+          },
+          include: paymentInclude,
+        })
+      )
+    );
+  } catch (error) {
+    storedShopPaymentVoucherPaths(voucherFiles).forEach((path) => removeStoredShopPaymentVoucherFile(path));
+    throw error;
+  }
 };
 
 const updatePayment = async ({ orgId, id, data }) => {
@@ -270,9 +331,12 @@ const updatePayment = async ({ orgId, id, data }) => {
 
   const amounts = cheque(data);
 
+  // Which maintenance record this payment settles is assigned once by the
+  // allocation in createPayment and is never re-editable here — only the
+  // amount, date, method, and remarks can change.
   const remainingamount = await remainingFor({
     orgId,
-    maintenanceId: data.maintenanceId,
+    maintenanceId: existing.maintenanceId,
     paidNow: amounts.paidamount,
     excludePaymentId: id,
   });
@@ -281,7 +345,6 @@ const updatePayment = async ({ orgId, id, data }) => {
     where: { id },
     data: {
       shopId: data.shopId,
-      maintenanceId: data.maintenanceId ?? null,
       paymentDate: asDate(data.paymentDate),
       paidamount: amounts.paidamount,
       remainingamount,

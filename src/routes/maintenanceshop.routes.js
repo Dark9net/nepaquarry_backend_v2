@@ -2,6 +2,7 @@ const express = require("express");
 const { authenticate } = require("../middleware/authenticate");
 const { AppError } = require("../lib/error");
 const controller = require("../controllers/maintenanceshop.controller");
+const { shopPaymentVoucherUploads, uploadErrorHandler } = require("../middleware/maintenanceUploads");
 const {
   validateShop,
   validateShopStatus,
@@ -32,7 +33,14 @@ router.put("/maintenance-shops/:id", requireManage, validateShop, controller.upd
 router.patch("/maintenance-shops/:id/status", requireManage, validateShopStatus, controller.setShopStatus);
 
 router.get("/maintenance-shop-payments", controller.listPayments);
-router.post("/maintenance-shop-payments", requireRecordPayment, validatePayment, controller.createPayment);
+router.post(
+  "/maintenance-shop-payments",
+  requireRecordPayment,
+  shopPaymentVoucherUploads,
+  uploadErrorHandler,
+  validatePayment,
+  controller.createPayment,
+);
 router.put("/maintenance-shop-payments/:id", requireRecordPayment, validatePayment, controller.updatePayment);
 router.delete("/maintenance-shop-payments/:id", requireManage, controller.deletePayment);
 

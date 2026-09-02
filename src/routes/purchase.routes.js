@@ -5,7 +5,7 @@ const controller = require("../controllers/purchase.controller");
 const { purchaseFilesUpload, uploadErrorHandler } = require("../middleware/purchaseUploads");
 const {
   validatePurchaseCreate, validatePurchaseUpdate,
-  validatePurchasePayment, validatePurchaseReview,
+  validatePurchaseReview,
 } = require("../validator/purchase.validator");
 
 const router = express.Router();
@@ -17,7 +17,6 @@ router.use(authenticate);
 router.get("/purchases", controller.listPurchases);
 router.post("/purchases", purchaseFilesUpload, uploadErrorHandler, validatePurchaseCreate, controller.createPurchase);
 router.patch("/purchases/:id", purchaseFilesUpload, uploadErrorHandler, validatePurchaseUpdate, controller.updatePurchase);
-router.post("/purchases/:id/payments", purchaseFilesUpload, uploadErrorHandler, validatePurchasePayment, controller.createPurchasePayment);
 router.patch("/purchases/:id/review", requireReviewer, validatePurchaseReview, controller.reviewPurchase);
 
 module.exports = router;

@@ -32,7 +32,12 @@ const updateShop = respond((request) => shopsService.updateShop({ orgId: request
 const setShopStatus = respond((request) => shopsService.setShopStatus({ orgId: request.auth.orgId, id: request.params.id, isActive: request.body.isActive }));
 
 const listPayments = respond((request) => shopsService.listPayments(request.auth.orgId, { shopId: request.query.shopId }));
-const createPayment = respond((request) => shopsService.createPayment({ orgId: request.auth.orgId, memberId: request.auth.memberId, data: request.body }), 201);
+const createPayment = respond((request) => shopsService.createPayment({
+  orgId: request.auth.orgId,
+  memberId: request.auth.memberId,
+  data: request.body,
+  voucherFiles: request.files,
+}), 201);
 const updatePayment = respond((request) => shopsService.updatePayment({ orgId: request.auth.orgId, id: request.params.id, data: request.body }));
 const deletePayment = respond((request) => shopsService.deletePayment({ orgId: request.auth.orgId, id: request.params.id }));
 

@@ -1,6 +1,6 @@
 const { z } = require("zod");
 
-const roleEnum = z.enum(["ADMIN", "SUPERVISOR", "PROCUREMENT", "EMPLOYEE", "GUEST"]);
+const roleEnum = z.enum(["ADMIN", "SUPERVISOR", "PROCUREMENT", "PURCHASE_STAFF", "EMPLOYEE", "GUEST"]);
 
 const inviteMemberSchema = z.object({
   name: z.string().trim().min(1, "Full name is required").max(200),

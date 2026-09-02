@@ -2,7 +2,7 @@ const express = require("express");
 const { authenticate } = require("../middleware/authenticate");
 const { AppError } = require("../lib/error");
 const controller = require("../controllers/vehicle-maintenance.controller");
-const { voucherUploads, uploadErrorHandler } = require("../middleware/maintenanceUploads");
+const { voucherUploads, billUpload, maintenanceCreateUpload, uploadErrorHandler } = require("../middleware/maintenanceUploads");
 const {
   validateMaintenanceCreate,
   validateMaintenanceUpdate,
@@ -17,13 +17,36 @@ const requireReviewer = (request, _response, next) =>
 const requireDelete = (request, _response, next) =>
   request.auth.role === "ADMIN" ? next() : next(new AppError(403, "You do not have permission to delete maintenance records."));
 
+// The create form submits multipart/form-data (it can carry a bill and an
+// initial-payment voucher), so `items` arrives as a JSON string rather than
+// a real array — parsed back here, before the zod validator runs on it.
+const parseItemsField = (request, _response, next) => {
+  if (typeof request.body.items === "string") {
+    try {
+      request.body.items = JSON.parse(request.body.items);
+    } catch {
+      next(new AppError(400, "Invalid items payload."));
+      return;
+    }
+  }
+  next();
+};
+
 router.use(authenticate);
 router.get("/maintenance/stats", controller.stats);
 router.get("/maintenance", controller.listMaintenance);
 router.get("/maintenance/:id", controller.getMaintenance);
-router.post("/maintenance", validateMaintenanceCreate, controller.createMaintenance);
+router.post(
+  "/maintenance",
+  maintenanceCreateUpload,
+  uploadErrorHandler,
+  parseItemsField,
+  validateMaintenanceCreate,
+  controller.createMaintenance,
+);
 router.patch("/maintenance/:id", validateMaintenanceUpdate, controller.updateMaintenance);
 router.patch("/maintenance/:id/vouchers", voucherUploads, uploadErrorHandler, controller.uploadVouchers);
+router.patch("/maintenance/:id/bill", billUpload, uploadErrorHandler, controller.uploadBill);
 router.patch("/maintenance/:id/review", requireReviewer, validateMaintenanceReview, controller.reviewMaintenance);
 router.delete("/maintenance/:id", requireDelete, controller.deleteMaintenance);
 

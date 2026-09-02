@@ -1,5 +1,5 @@
 const maintenanceService = require("../services/vehicle-maintenance.service");
-const { storedVoucherPaths } = require("../middleware/maintenanceUploads");
+const { storedVoucherPaths, storedBillPath } = require("../middleware/maintenanceUploads");
 const { AppError } = require("../lib/error");
 
 const respond = (handler, status = 200) => async (request, response, next) => {
@@ -41,6 +41,7 @@ const createMaintenance = respond((request) => maintenanceService.createMaintena
   orgId: request.auth.orgId,
   memberId: request.auth.memberId,
   data: request.body,
+  files: request.files,
 }), 201);
 
 const updateMaintenance = respond((request) => maintenanceService.updateMaintenance({
@@ -66,6 +67,13 @@ const uploadVouchers = respond((request) => {
   });
 });
 
+const uploadBill = respond((request) => maintenanceService.uploadBill({
+  orgId: request.auth.orgId,
+  id: request.params.id,
+  billFilePath: storedBillPath(request.file),
+  clearBill: request.body.clearBill === "true",
+}));
+
 const reviewMaintenance = respond((request) => maintenanceService.reviewMaintenance({
   orgId: request.auth.orgId,
   memberId: request.auth.memberId,
@@ -86,6 +94,7 @@ module.exports = {
   createMaintenance,
   updateMaintenance,
   uploadVouchers,
+  uploadBill,
   reviewMaintenance,
   deleteMaintenance,
   stats,

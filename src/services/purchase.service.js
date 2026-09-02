@@ -97,8 +97,8 @@ const createPurchase = async ({ orgId, memberId, data, files }) => {
   if (!billFile) throw new AppError(400, "Bill upload is required.");
   const voucherFile = files?.voucherFile?.[0];
 
-  const hasPayment = Boolean(data.paymentDate && data.paymentAmount);
-  if (data.paymentMethod !== "CREDIT" || hasPayment) {
+  const hasPayment = Boolean(data.paymentDate || data.paymentAmount || voucherFile);
+  if (hasPayment) {
     if (!data.paymentDate) throw new AppError(400, "Payment date is required when payment is recorded.");
     if (!data.paymentAmount) throw new AppError(400, "Payment amount must be greater than zero.");
     if (!voucherFile) throw new AppError(400, "Voucher upload is required when payment is recorded.");
@@ -173,8 +173,8 @@ const updatePurchase = async ({ orgId, id, data, files }) => {
   const billFile = files?.billFile?.[0];
   const voucherFile = files?.voucherFile?.[0];
 
-  const hasPayment = Boolean(data.paymentDate && data.paymentAmount);
-  if (data.paymentMethod !== "CREDIT" || hasPayment) {
+  const hasPayment = Boolean(data.paymentDate || data.paymentAmount || voucherFile);
+  if (hasPayment) {
     if (!data.paymentDate) throw new AppError(400, "Payment date is required when payment is recorded.");
     if (!data.paymentAmount) throw new AppError(400, "Payment amount must be greater than zero.");
     if (!voucherFile && !existing.voucherPath && !data.clearVoucher) throw new AppError(400, "Voucher upload is required when payment is recorded.");
@@ -214,41 +214,6 @@ const updatePurchase = async ({ orgId, id, data, files }) => {
   }
 };
 
-const createPurchasePayment = async ({ orgId, memberId, id, data, files }) => {
-  const purchase = await findPurchase(orgId, id);
-  if (!purchase.supplierId) throw new AppError(400, "This purchase has no linked supplier account.");
-
-  const paidAmount = purchase.payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-  const remainingDue = Number(purchase.amount) - paidAmount;
-  if (data.paymentAmount > remainingDue) throw new AppError(400, "Payment amount cannot exceed the remaining due balance.");
-
-  const billFiles = files?.paymentBillFiles || [];
-  const voucherFiles = files?.paymentVoucherFiles || [];
-  if (voucherFiles.length === 0) throw new AppError(400, "At least one voucher upload is required when recording a payment.");
-
-  try {
-    return await prisma.purchaseSupplierPayment.create({
-      data: {
-        orgId,
-        supplierId:    purchase.supplierId,
-        purchaseId:    purchase.id,
-        paymentDate:   asDate(data.paymentDate),
-        amount:        data.paymentAmount,
-        paymentMethod: data.paymentMethod,
-        billPaths:     billFiles.length ? JSON.stringify(billFiles.map((file) => `/uploads/purchase/${file.filename}`)) : null,
-        voucherPaths:  JSON.stringify(voucherFiles.map((file) => `/uploads/purchase/${file.filename}`)),
-        notes:         data.notes,
-        createdById:   memberId,
-      },
-      include: { createdBy: { select: { id: true, user: { select: { name: true } } } } },
-    });
-  } catch (error) {
-    billFiles.forEach((file) => removeStoredFile(`/uploads/purchase/${file.filename}`));
-    voucherFiles.forEach((file) => removeStoredFile(`/uploads/purchase/${file.filename}`));
-    throw error;
-  }
-};
-
 const reviewPurchase = async ({ orgId, memberId, id, data }) => {
   const purchase = await findPurchase(orgId, id);
   if (purchase.status === "REVIEWED") throw new AppError(400, "This purchase has already been reviewed.");
@@ -265,4 +230,4 @@ const reviewPurchase = async ({ orgId, memberId, id, data }) => {
   });
 };
 
-module.exports = { listPurchases, createPurchase, updatePurchase, createPurchasePayment, reviewPurchase };
+module.exports = { listPurchases, createPurchase, updatePurchase, reviewPurchase };

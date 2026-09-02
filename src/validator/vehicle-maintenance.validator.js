@@ -23,13 +23,33 @@ const assetRefinement = (data, ctx) => {
 const maintenanceCreateSchema = z.object({
   vehicleId: z.string().trim().min(1).optional(),
   plantId: z.string().trim().min(1).optional(),
+  // Required so a maintenance bill can only ever be paid through the shop it
+  // was actually billed to (see maintenanceshop.service.js#createPayment).
+  shopId: z.string().trim().min(1, "Maintenance shop is required"),
   driverStaffId: z.string().trim().min(1).optional(),
 
   maintenanceDate: dateOnly,
   paymentDate: optionalDateOnly,
+  // How the job is generally being paid to the shop — required for every new
+  // record, distinct from the optional initial-payment ledger entry below.
+  paymentMethod: z.enum(["CREDIT", "CHEQUE", "CASH_IN_COUNTER"], { message: "Select a payment type" }),
   odometer: z.union([z.coerce.number().int().min(0), z.null()]).optional(),
   nextServiceDate: optionalDateOnly,
   notes: optionalText(2000),
+
+  // An optional initial payment against the shop, recorded alongside the
+  // job itself — distinct from `paymentDate` above, which marks the job's
+  // own bill as settled (and drives the Daily Sales expense/voucher-photo
+  // flow). Named separately so the two can never be confused with each
+  // other; this one only ever creates a MaintenanceShopPayment ledger row.
+  initialPaymentDate: dateOnly.optional(),
+  initialPaymentAmount: z.coerce.number().positive("Amount must be greater than 0").max(99999999.99).optional(),
+  // Cash is the default so existing callers that never send a method keep
+  // behaving exactly as before. Cheque details are only ever read when
+  // initialPaymentMethod is CHEQUE (see cheque() in the service).
+  initialPaymentMethod: z.enum(["CASH", "CHEQUE"]).default("CASH"),
+  initialChequeDetail: optionalText(1000),
+  initialChequeAmount: z.coerce.number().positive("Cheque amount must be greater than 0").max(99999999.99).optional(),
 
   items: z.array(itemSchema).min(1, "Add at least one maintenance item").max(50),
 }).strict().superRefine(assetRefinement);
@@ -37,10 +57,12 @@ const maintenanceCreateSchema = z.object({
 const maintenanceUpdateSchema = z.object({
   vehicleId: z.union([z.string().trim().min(1), z.null()]).optional(),
   plantId: z.union([z.string().trim().min(1), z.null()]).optional(),
+  shopId: z.string().trim().min(1).optional(),
   driverStaffId: z.union([z.string().trim().min(1), z.null()]).optional(),
 
   maintenanceDate: dateOnly.optional(),
   paymentDate: optionalDateOnly,
+  paymentMethod: z.enum(["CREDIT", "CHEQUE", "CASH_IN_COUNTER"]).optional(),
   odometer: z.union([z.coerce.number().int().min(0), z.null()]).optional(),
   nextServiceDate: optionalDateOnly,
   notes: optionalText(2000),

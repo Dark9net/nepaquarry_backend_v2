@@ -1,13 +1,12 @@
 generator client {
-    provider = "prisma-client-js"
-    // binaryTargets = ["native", "debian-openssl-1.1.x"]
+  provider = "prisma-client-js"
+  // binaryTargets = ["native", "debian-openssl-1.1.x"]
 }
 
 datasource db {
-    provider = "mysql"
-    // Prisma 7 no longer accepts `url` here: migrations read it from
-    // prisma.config.js, and the client gets an adapter (see src/config/db.js).
+  provider = "mysql"
 }
+
 // use npx prisma db push
 // don't use npx prisma migrate dev --name new_mig
 
@@ -33,6 +32,7 @@ enum Role {
   ADMIN
   SUPERVISOR
   PROCUREMENT
+  PURCHASE_STAFF
   EMPLOYEE
   GUEST
 }
@@ -99,6 +99,12 @@ enum PurchasePaymentMethod {
   CASH_IN_COUNTER
 }
 
+enum MaintenancePaymentType {
+  CREDIT
+  CHEQUE
+  CASH_IN_COUNTER
+}
+
 enum PurchaseReviewStatus {
   PENDING
   REVIEWED
@@ -121,36 +127,34 @@ enum PaymentProvider {
   CASH
   BANK_TRANSFER
   OTHERS
-  // Used by MaintenanceShopPayment only. Adding a member is additive — no
-  // existing row changes — and the subscription checkout validator keeps its
-  // own narrower list, so this does not become a payable option there.
   CHEQUE
 }
 
 enum PaymentMethod {
   CASH
-  CHEQUE  
+  CHEQUE
 }
 
 enum BillingInterval {
-    MONTHLY
-    QUARTERLY
-    HALF_YEARLY
-    YEARLY
+  MONTHLY
+  QUARTERLY
+  HALF_YEARLY
+  YEARLY
 }
 
 enum SubscriptionStatus {
-    INCOMPLETE
-    ACTIVE
-    PAST_DUE
-    CANCELED
-    UNPAID
+  INCOMPLETE
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
 }
+
 enum PaymentStatus {
-    PENDING
-    PAID
-    FAILED
-    REFUNDED
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
 }
 
 enum DeductionBy {
@@ -175,40 +179,39 @@ enum DeviceType {
 }
 
 model User {
-  id                  String   @id @default(cuid())
-  email               String   @unique
-  password            String
-  name                String
-  mustChangePassword  Boolean  @default(false)
+  id                 String  @id @default(cuid())
+  email              String  @unique
+  password           String
+  name               String
+  mustChangePassword Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships       OrganizationMember[]
-  loginAttempts     LoginAttempt[]
-  Otps              Otp[]
-  refreshTokens     RefreshToken[]
-  userSessions      UserSession[]
-  subscriptions      Subscription[] @relation("SubscriptionPurchaser")
-  subscriptionPayment     SubscriptionPayment[] @relation("PaymentRecordedBy")
-
+  memberships         OrganizationMember[]
+  loginAttempts       LoginAttempt[]
+  Otps                Otp[]
+  refreshTokens       RefreshToken[]
+  userSessions        UserSession[]
+  subscriptions       Subscription[]        @relation("SubscriptionPurchaser")
+  subscriptionPayment SubscriptionPayment[] @relation("PaymentRecordedBy")
 }
 
 model Otp {
-  id          String     @id @default(cuid())
+  id String @id @default(cuid())
 
-  userId      String
-  otpHash     String
-  purpose     OtpPurpose
-  expiresAt   DateTime
-  verifiedAt  DateTime?
-  used        OtpStatus
+  userId     String
+  otpHash    String
+  purpose    OtpPurpose
+  expiresAt  DateTime
+  verifiedAt DateTime?
+  used       OtpStatus
 
-  attempts    Int        @default(0)
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attempts Int  @default(0)
+  user     User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([purpose])
@@ -216,32 +219,32 @@ model Otp {
 }
 
 model RefreshToken {
-  id         String    @id @default(cuid()) @db.VarChar(191)
+  id String @id @default(cuid()) @db.VarChar(191)
 
-  userId     String
-  tokenHash  String    @unique
-  expiresAt  DateTime
-  revokedAt  DateTime?
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
 
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
 }
 
 model LoginAttempt {
-  id          String      @id @default(cuid())
+  id String @id @default(cuid())
 
-  userId      String?
-  ipAddress   String?
-  userAgent   String?
-  status      LoginStatus
+  userId    String?
+  ipAddress String?
+  userAgent String?
+  status    LoginStatus
 
-  user        User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  createdAt   DateTime    @default(now())
+  createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([ipAddress])
@@ -259,10 +262,10 @@ model UserSession {
   deviceLabel String?
 
   ipAddress String?
-  userAgent String?  @db.Text
+  userAgent String? @db.Text
 
-  revokedAt       DateTime? @db.DateTime(3)
-  lastActiveAt    DateTime  @default(now()) @db.DateTime(3)
+  revokedAt    DateTime? @db.DateTime(3)
+  lastActiveAt DateTime  @default(now()) @db.DateTime(3)
 
   org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -277,19 +280,19 @@ model UserSession {
 
 // -------------------------------------------Subscription Models-------------------------------------------
 model SubscriptionPlan {
-  id          String @id @default(cuid())  
+  id          String  @id @default(cuid())
   name        String
-  code        String @unique
+  code        String  @unique
   description String?
 
-  price          Decimal         @db.Decimal(12, 2)
-  currency       String          @default("NPR") @db.VarChar(3)
-  membercount    Int             @default(0)
-  packagestatus  SubscriptionPlanStatus @default(BASIC)
+  price           Decimal                @db.Decimal(12, 2)
+  currency        String                 @default("NPR") @db.VarChar(3)
+  membercount     Int                    @default(0)
+  packagestatus   SubscriptionPlanStatus @default(BASIC)
   billingInterval BillingInterval
-  trialDays      Int             @default(0)
+  trialDays       Int                    @default(0)
 
-  isActive  Boolean @default(true)
+  isActive Boolean @default(true)
 
   subscriptions Subscription[]
 
@@ -300,11 +303,11 @@ model SubscriptionPlan {
 }
 
 model Subscription {
-  id             String @id @default(cuid())  
-  organizationId String  
-  planId         String  
+  id             String @id @default(cuid())
+  organizationId String
+  planId         String
 
-  subscribedByUserId String  
+  subscribedByUserId String
 
   status SubscriptionStatus @default(INCOMPLETE)
 
@@ -324,7 +327,7 @@ model Subscription {
   cancelledAt        DateTime? @db.DateTime(3)
   cancellationReason String?
 
-  provider               PaymentProvider?
+  provider PaymentProvider?
 
   organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   plan         SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
@@ -342,13 +345,13 @@ model Subscription {
 }
 
 model SubscriptionPayment {
-  id             String  @id @default(cuid())  
-  organizationId String   
-  subscriptionId String   
-  invoiceId      String?  
+  id             String  @id @default(cuid())
+  organizationId String
+  subscriptionId String
+  invoiceId      String?
 
   provider PaymentProvider
-  status   PaymentStatus @default(PENDING)
+  status   PaymentStatus   @default(PENDING)
 
   amount         Decimal @db.Decimal(12, 2)
   refundedAmount Decimal @default(0) @db.Decimal(12, 2)
@@ -360,7 +363,7 @@ model SubscriptionPayment {
   paidAt     DateTime? @db.DateTime(3)
   refundedAt DateTime? @db.DateTime(3)
 
-  recordedByUserId String?  
+  recordedByUserId String?
   notes            String?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
@@ -377,10 +380,10 @@ model SubscriptionPayment {
 
 // -------------------------------------------Organization Model-------------------------------------------
 model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  isActive  Boolean  @default(true)
+  id       String  @id @default(cuid())
+  name     String
+  slug     String  @unique
+  isActive Boolean @default(true)
 
   advanceRequestLimit    Int?
   additionalAdvanceLimit Int?
@@ -421,60 +424,59 @@ model Organization {
   maintenanceShops         MaintenanceShop[]
   maintenanceShopPayments  MaintenanceShopPayment[]
   dailysalesreturns        DailySalesReturns[]
-  
 
   @@index([slug])
   @@index([name])
 }
 
 model OrganizationMember {
-  id           String  @id @default(cuid())
-  userId       String
-  orgId        String
+  id     String @id @default(cuid())
+  userId String
+  orgId  String
 
-  role         Role
-  isActive     Boolean @default(true)
+  role     Role
+  isActive Boolean @default(true)
 
   user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   org  Organization @relation(fields: [orgId], references: [id])
 
-  reviewedLeaves       LeaveRequest[]      @relation("LeaveReviewer")
-  approvedAdvances     Advance[]           @relation("AdvanceApproved")
-  additionalAdvances   Advance[]           @relation("AdditionalAdvanceApproved")
-  createdStaff         Staff[]             @relation("StaffCreatedBy")
-  createdLeaves        LeaveRequest[]      @relation("LeaveCreatedBy")
-  createdAdvances      Advance[]           @relation("AdvanceCreatedBy")
-  createdMaintenances  VehicleMaintenance[] @relation("MaintenanceCreatedBy")
-  reviewedMaintenances VehicleMaintenance[] @relation("MaintenanceReviewedBy")
-  createdVehicles      Vehicle[]           @relation("VehicleCreatedBy")
-  createdTrips         DailyTripRecord[]   @relation("TripCreatedBy")
-  updatedTrips         DailyTripRecord[]   @relation("TripUpdatedBy")
-  createdTripVehicles  TripVehicle[]       @relation("TripVehicleCreatedBy")
-  createdMaterials     RawMaterial[]       @relation("MaterialCreatedBy")
-  setRates             MaterialRate[]      @relation("RateSetBy")
-  createdPlants        Plant[]             @relation("PlantCreatedBy")
-  createdReports       DailyPlantReport[]  @relation("ReportCreatedBy")
-  checkedReports       DailyPlantReport[]  @relation("ReportCheckedBy")
-  createdCategories    ProductCategory[]   @relation("CategoryCreatedBy")
-  createdProducts      MasterProduct[]     @relation("ProductCreatedBy")
-  createdTransactions  InventoryTransaction[] @relation("TransactionCreatedBy")
-  ordersTo             Orders[]               @relation("OrderToMember")
-  createdOrders        Orders[]               @relation("OrderCreatedBy")
-  checkedOrders        Orders[]               @relation("OrderCheckedBy")
-  verifiedOrders       Orders[]               @relation("OrderVerifiedBy")
-  createdSalesReports  DailySalesReport[]     @relation("SalesReportCreatedBy")
-  createdSaleEntries   DailySaleEntry[]       @relation("SaleEntryCreatedBy")
-  approvedReports      DailySalesReport[]     @relation("ReportApprovedBy")
-  createdCreditSales   DailyCreditSale[]      @relation("CreditSaleCreatedBy")
-  createdCreditParties CreditParty[]          @relation("CreditPartyCreatedBy")
-  createdCreditTxns    CreditTransaction[]    @relation("CreditTxnCreatedBy")
-  createdPurchases     Purchase[]             @relation("PurchaseCreatedBy")
-  reviewedPurchases    Purchase[]             @relation("PurchaseReviewedBy")
-  createdPurchaseSuppliers         PurchaseSupplier[]         @relation("PurchaseSupplierCreatedBy")
-  createdPurchasePayments          PurchaseSupplierPayment[]  @relation("PurchasePaymentCreatedBy")
-  MaintenanceShopCreatedBy         MaintenanceShop[]          @relation("MaintenanceShopCreatedBy")
-  MaintenancePaymentCreatedBy      MaintenanceShopPayment[]   @relation("MaintenancePaymentCreatedBy")
-  DailySalesReturnCreatedBy        DailySalesReturns[]        @relation("CreditSaleReturnCreatedBy")
+  reviewedLeaves              LeaveRequest[]            @relation("LeaveReviewer")
+  approvedAdvances            Advance[]                 @relation("AdvanceApproved")
+  additionalAdvances          Advance[]                 @relation("AdditionalAdvanceApproved")
+  createdStaff                Staff[]                   @relation("StaffCreatedBy")
+  createdLeaves               LeaveRequest[]            @relation("LeaveCreatedBy")
+  createdAdvances             Advance[]                 @relation("AdvanceCreatedBy")
+  createdMaintenances         VehicleMaintenance[]      @relation("MaintenanceCreatedBy")
+  reviewedMaintenances        VehicleMaintenance[]      @relation("MaintenanceReviewedBy")
+  createdVehicles             Vehicle[]                 @relation("VehicleCreatedBy")
+  createdTrips                DailyTripRecord[]         @relation("TripCreatedBy")
+  updatedTrips                DailyTripRecord[]         @relation("TripUpdatedBy")
+  createdTripVehicles         TripVehicle[]             @relation("TripVehicleCreatedBy")
+  createdMaterials            RawMaterial[]             @relation("MaterialCreatedBy")
+  setRates                    MaterialRate[]            @relation("RateSetBy")
+  createdPlants               Plant[]                   @relation("PlantCreatedBy")
+  createdReports              DailyPlantReport[]        @relation("ReportCreatedBy")
+  checkedReports              DailyPlantReport[]        @relation("ReportCheckedBy")
+  createdCategories           ProductCategory[]         @relation("CategoryCreatedBy")
+  createdProducts             MasterProduct[]           @relation("ProductCreatedBy")
+  createdTransactions         InventoryTransaction[]    @relation("TransactionCreatedBy")
+  ordersTo                    Orders[]                  @relation("OrderToMember")
+  createdOrders               Orders[]                  @relation("OrderCreatedBy")
+  checkedOrders               Orders[]                  @relation("OrderCheckedBy")
+  verifiedOrders              Orders[]                  @relation("OrderVerifiedBy")
+  createdSalesReports         DailySalesReport[]        @relation("SalesReportCreatedBy")
+  createdSaleEntries          DailySaleEntry[]          @relation("SaleEntryCreatedBy")
+  approvedReports             DailySalesReport[]        @relation("ReportApprovedBy")
+  createdCreditSales          DailyCreditSale[]         @relation("CreditSaleCreatedBy")
+  createdCreditParties        CreditParty[]             @relation("CreditPartyCreatedBy")
+  createdCreditTxns           CreditTransaction[]       @relation("CreditTxnCreatedBy")
+  createdPurchases            Purchase[]                @relation("PurchaseCreatedBy")
+  reviewedPurchases           Purchase[]                @relation("PurchaseReviewedBy")
+  createdPurchaseSuppliers    PurchaseSupplier[]        @relation("PurchaseSupplierCreatedBy")
+  createdPurchasePayments     PurchaseSupplierPayment[] @relation("PurchasePaymentCreatedBy")
+  MaintenanceShopCreatedBy    MaintenanceShop[]         @relation("MaintenanceShopCreatedBy")
+  MaintenancePaymentCreatedBy MaintenanceShopPayment[]  @relation("MaintenancePaymentCreatedBy")
+  DailySalesReturnCreatedBy   DailySalesReturns[]       @relation("CreditSaleReturnCreatedBy")
 
   @@unique([userId, orgId])
   @@index([orgId])
@@ -501,29 +503,28 @@ model Department {
 
 // -------------------------------------------Staff Model-------------------------------------------
 model Staff {
-  id           String    @id @default(cuid())
-  orgId        String
-  deptId       String
-  createdById  String
+  id          String @id @default(cuid())
+  orgId       String
+  deptId      String
+  createdById String
 
-  employeeCode String
-  fullName     String
-  designation  String
-  phone        String?
-  email        String?
-  address      String?
-  licensePhotoUrl       String?
-  citizenshipphotoUrl   String?
-  profilephotoUrl       String?
+  employeeCode        String
+  fullName            String
+  designation         String
+  phone               String?
+  email               String?
+  address             String?
+  licensePhotoUrl     String?
+  citizenshipphotoUrl String?
+  profilephotoUrl     String?
 
-  
   familyContactName     String?
   familyContactPhone    String?
   familyContactRelation String?
 
-  joinDate     DateTime  @db.Date
-  isActive     Boolean   @default(true)
-  deletedAt    DateTime?
+  joinDate  DateTime  @db.Date
+  isActive  Boolean   @default(true)
+  deletedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -538,8 +539,8 @@ model Staff {
   advances           Advance[]
   vehicleAssignments VehicleDriver[]
   tripRecords        DailyTripRecord[]
-  ordersPlaced       Orders[]         @relation("OrderByStaff")
-  dailyExpenses      DailyExpense[]   @relation("ExpenseStaff")
+  ordersPlaced       Orders[]          @relation("OrderByStaff")
+  dailyExpenses      DailyExpense[]    @relation("ExpenseStaff")
 
   @@unique([orgId, employeeCode])
   @@index([orgId])
@@ -555,7 +556,7 @@ model Vehicle {
   vehicleNo    String
   vehicleType  String?
   year         Int?
-  isActive     Boolean  @default(true)
+  isActive     Boolean @default(true)
 
   createdById String
   createdAt   DateTime @default(now())
@@ -595,22 +596,36 @@ model VehicleMaintenance {
   vehicleId     String?
   plantId       String?
   driverStaffId String?
+  // Nullable at the DB level so records written before this field existed
+  // stay valid; the create validator requires it for every new record so a
+  // maintenance bill can never be paid through an unrelated shop.
+  shopId        String?
   createdById   String
   reviewedById  String?
 
-  maintenanceDate DateTime          @db.Date
-  paymentDate     DateTime?         @db.Date  // actual bill payment date — expense fires on this date
+  maintenanceDate DateTime                @db.Date
+  paymentDate     DateTime?               @db.Date // actual bill payment date — expense fires on this date
+  // How this job is generally being paid to the shop (credit terms, cheque,
+  // or cash in counter) — mirrors Purchase.paymentMethod. Nullable at the DB
+  // level so records written before this field existed stay valid; the
+  // create validator requires it for every new record. Distinct from
+  // MaintenanceShopPayment.paymentMethod, which records how one specific
+  // installment against the shop was actually paid.
+  paymentMethod   MaintenancePaymentType?
   odometer        Int?
-  nextServiceDate DateTime?         @db.Date
-  notes           String?           @db.Text
+  nextServiceDate DateTime?               @db.Date
+  notes           String?                 @db.Text
+  // The shop's bill/invoice for this job — uploaded separately via
+  // PATCH /maintenance/:id/bill, the same way voucherPhotos is.
+  billPath        String?                 @db.Text
   // A JSON array of upload paths, not a single value. Each path runs ~85
   // characters, so the default VARCHAR(191) could not even hold two of them —
   // MySQL truncated the JSON mid-string and every read then failed to parse.
   // TEXT gives room for the full set (see MAX_VOUCHER_PHOTOS).
-  voucherPhotos   String?           @db.Text
+  voucherPhotos   String?                 @db.Text
 
-  totalCost       Decimal           @db.Decimal(10, 2) @default(0)
-  status          MaintenanceStatus @default(PENDING)
+  totalCost Decimal           @default(0) @db.Decimal(10, 2)
+  status    MaintenanceStatus @default(PENDING)
 
   reviewedAt DateTime?
   reviewNote String?
@@ -621,17 +636,19 @@ model VehicleMaintenance {
   org         Organization        @relation(fields: [orgId], references: [id])
   vehicle     Vehicle?            @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
   plant       Plant?              @relation(fields: [plantId], references: [id], onDelete: SetNull)
+  shop        MaintenanceShop?    @relation(fields: [shopId], references: [id], onDelete: SetNull)
   driverStaff Staff?              @relation("MaintenanceDriver", fields: [driverStaffId], references: [id])
   createdBy   OrganizationMember  @relation("MaintenanceCreatedBy", fields: [createdById], references: [id])
   reviewedBy  OrganizationMember? @relation("MaintenanceReviewedBy", fields: [reviewedById], references: [id])
 
-  items         MaintenanceItem[]
-  dailyExpenses DailyExpense[]
+  items                MaintenanceItem[]
+  dailyExpenses        DailyExpense[]
   maintainancePayments MaintenanceShopPayment[]
 
   @@index([orgId])
   @@index([orgId, vehicleId])
   @@index([orgId, plantId])
+  @@index([orgId, shopId])
   @@index([orgId, maintenanceDate])
   @@index([orgId, paymentDate])
   @@index([orgId, status])
@@ -640,13 +657,13 @@ model VehicleMaintenance {
 }
 
 model MaintenanceItem {
-  id            String  @id @default(cuid())
+  id            String   @id @default(cuid())
   maintenanceId String
   itemName      String
   partSerialNo  String?
   quantity      Int?
   unitCost      Decimal? @db.Decimal(10, 2)
-  totalCost     Decimal  @db.Decimal(10, 2) @default(0)
+  totalCost     Decimal  @default(0) @db.Decimal(10, 2)
 
   maintenance VehicleMaintenance @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
 
@@ -654,14 +671,14 @@ model MaintenanceItem {
 }
 
 model MaintenanceShop {
-  id        String  @id @default(cuid())
-  orgId     String
-  name      String
-  contactNo String?
-  panNo     String?
-  address   String?
-  isActive  Boolean @default(true)
-  notes     String?  @db.Text
+  id          String  @id @default(cuid())
+  orgId       String
+  name        String
+  contactNo   String?
+  panNo       String?
+  address     String?
+  isActive    Boolean @default(true)
+  notes       String? @db.Text
   createdById String
 
   createdAt DateTime @default(now())
@@ -670,37 +687,45 @@ model MaintenanceShop {
   org       Organization       @relation(fields: [orgId], references: [id])
   createdBy OrganizationMember @relation("MaintenanceShopCreatedBy", fields: [createdById], references: [id])
 
-  maintenancepayment    MaintenanceShopPayment[]
+  maintenancepayment MaintenanceShopPayment[]
+  // Every maintenance job billed to this shop — set directly on the job at
+  // creation, not inferred from payments. Drives the shop's "Total billed".
+  maintenanceRecords VehicleMaintenance[]
 
   @@unique([orgId, name])
   @@index([orgId])
 }
 
 model MaintenanceShopPayment {
-  id            String  @id @default(cuid())
-  orgId         String
-  shopId        String
-  maintenanceId String?
-  paymentDate   DateTime @db.Date
-  paidamount             Decimal  @db.Decimal(10, 2)
-  remainingamount        Decimal  @db.Decimal(10, 2)
+  id              String          @id @default(cuid())
+  orgId           String
+  shopId          String
+  maintenanceId   String?
+  paymentDate     DateTime        @db.Date
+  paidamount      Decimal         @db.Decimal(10, 2)
+  remainingamount Decimal         @db.Decimal(10, 2)
   // Only CASH and CHEQUE are offered on the maintenance payment form. The
   // column keeps the wider PaymentProvider enum so historical rows written
   // with the old options (eSewa, Khalti, FonePay, bank transfer) stay
   // readable; the API rejects those values on new writes.
-  paymentMethod PaymentProvider @default(CASH)
+  paymentMethod   PaymentProvider @default(CASH)
   // Populated only when paymentMethod is CHEQUE. `chequeamount` is the value
   // written on the cheque and is mirrored into `paidamount`, so a cheque
   // reduces the linked maintenance record's outstanding balance exactly the
   // way a cash payment does.
-  chequedetail  String?  @db.Text
-  chequeamount  Decimal? @db.Decimal(10, 2)
-  voucherPath   String?  @db.Text
-  remarks       String?  @db.Text
-  createdById   String
+  chequedetail    String?         @db.Text
+  chequeamount    Decimal?        @db.Decimal(10, 2)
+  // Legacy singular field — never populated by the API, kept only so any
+  // historical row that happens to have it stays readable.
+  voucherPath     String?         @db.Text
+  // JSON array of upload paths — proof of this installment, in the same
+  // shape as PurchaseSupplierPayment.voucherPaths.
+  voucherPaths    String?         @db.Text
+  remarks         String?         @db.Text
+  createdById     String
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   org         Organization        @relation(fields: [orgId], references: [id])
   shop        MaintenanceShop     @relation(fields: [shopId], references: [id])
@@ -715,12 +740,12 @@ model MaintenanceShopPayment {
 // -------------------------------------------Plant Model-------------------------------------------
 // this table is used in assets.tsx and plant.tsx page
 model Plant {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   orgId       String
   name        String
   description String?
   location    String?
-  isActive    Boolean  @default(true)
+  isActive    Boolean @default(true)
   createdById String
 
   createdAt DateTime @default(now())
@@ -753,7 +778,7 @@ model DailyPlantReport {
   maintenanceEndTime     DateTime?
   maintenanceHours       Decimal?  @db.Decimal(5, 2)
 
-  remarks     String?  @db.Text
+  remarks     String?   @db.Text
   createdById String
   checkedById String?
   checkedAt   DateTime?
@@ -807,15 +832,15 @@ model ProductCategory {
 
 // this table belongs to spare parts (assets.tsx page spare parts tab)
 model MasterProduct {
-  id          String  @id @default(cuid())
-  orgId       String
-  productCode String
-  name        String
-  category    String?
-  size        String?
-  serialNo    String?
-  location    String?
-  reorderLevel Int    @default(0)
+  id           String  @id @default(cuid())
+  orgId        String
+  productCode  String
+  name         String
+  category     String?
+  size         String?
+  serialNo     String?
+  location     String?
+  reorderLevel Int     @default(0)
 
   supplierAName String?
   supplierARate Decimal? @db.Decimal(10, 2)
@@ -875,7 +900,7 @@ model InventoryTransaction {
 // -------------------------------------------Leave Request Model-------------------------------------------
 // staff leave request (staff page)
 model LeaveRequest {
-  id           String      @id @default(cuid())
+  id           String  @id @default(cuid())
   orgId        String
   staffId      String
   createdById  String
@@ -916,31 +941,31 @@ model Advance {
   advanceMonth Int
   advanceYear  Int
 
-  advanceTakenDate DateTime?   @db.Date
-  amount         Decimal       @db.Decimal(10, 2)
-  reason         String?       @db.Text
-  status         AdvanceStatus @default(PENDING)
-  paymentMethod  PaymentMethod @default(CASH)
-  chequeDetails  String?       @db.Text
-  chequeamount   Decimal?      @db.Decimal(10, 2)
-  approvedById   String?
-  approvedAt     DateTime?
-  paymentSlipUrl String?
+  advanceTakenDate DateTime?     @db.Date
+  amount           Decimal       @db.Decimal(10, 2)
+  reason           String?       @db.Text
+  status           AdvanceStatus @default(PENDING)
+  paymentMethod    PaymentMethod @default(CASH)
+  chequeDetails    String?       @db.Text
+  chequeamount     Decimal?      @db.Decimal(10, 2)
+  approvedById     String?
+  approvedAt       DateTime?
+  paymentSlipUrl   String?
 
-  additionalAmount        Decimal?       @db.Decimal(10, 2)
-  additionalReason        String?        @db.Text
-  additionalStatus        AdvanceStatus?
+  additionalAmount           Decimal?       @db.Decimal(10, 2)
+  additionalReason           String?        @db.Text
+  additionalStatus           AdvanceStatus?
   // Mirrors the primary advance's cheque handling: a cheque additional advance
   // stores `additionalAmount: 0` and carries its value in
   // `additionalChequeamount`, so it never reaches the cash expense ledger.
-  additionalPaymentMethod PaymentMethod? @default(CASH)
-  additionalChequeDetails String?        @db.Text
-  additionalChequeamount  Decimal?       @db.Decimal(10, 2)
-  additionalApprovedById  String?
-  additionalApprovedAt    DateTime?
-  additionalRequestedAt   DateTime?
-  additionalAdvanceTakenDate DateTime? @db.Date
-  additionalPaymentSlipUrl String?
+  additionalPaymentMethod    PaymentMethod? @default(CASH)
+  additionalChequeDetails    String?        @db.Text
+  additionalChequeamount     Decimal?       @db.Decimal(10, 2)
+  additionalApprovedById     String?
+  additionalApprovedAt       DateTime?
+  additionalRequestedAt      DateTime?
+  additionalAdvanceTakenDate DateTime?      @db.Date
+  additionalPaymentSlipUrl   String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -962,11 +987,11 @@ model Advance {
 // -------------------------------------------Purchase Model-------------------------------------------
 // this table belongs to (purchase.tsx) page
 model Purchase {
-  id            String                @id @default(cuid())
-  orgId         String
-  createdById   String
-  supplierId    String?
-  serialNo      String
+  id          String  @id @default(cuid())
+  orgId       String
+  createdById String
+  supplierId  String?
+  serialNo    String
 
   purchaseDate  DateTime              @db.Date
   partyName     String
@@ -1006,23 +1031,23 @@ model Purchase {
 }
 
 model PurchaseSupplier {
-  id            String   @id @default(cuid())
-  orgId         String
-  name          String
-  contactNo     String?
-  panNo         String?
-  address       String?
-  notes         String?  @db.Text
-  isActive      Boolean  @default(true)
-  createdById   String
+  id          String  @id @default(cuid())
+  orgId       String
+  name        String
+  contactNo   String?
+  panNo       String?
+  address     String?
+  notes       String? @db.Text
+  isActive    Boolean @default(true)
+  createdById String
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  org        Organization        @relation(fields: [orgId], references: [id])
-  createdBy  OrganizationMember  @relation("PurchaseSupplierCreatedBy", fields: [createdById], references: [id])
-  purchases  Purchase[]
-  payments   PurchaseSupplierPayment[]
+  org       Organization              @relation(fields: [orgId], references: [id])
+  createdBy OrganizationMember        @relation("PurchaseSupplierCreatedBy", fields: [createdById], references: [id])
+  purchases Purchase[]
+  payments  PurchaseSupplierPayment[]
 
   @@unique([orgId, name])
   @@index([orgId])
@@ -1030,26 +1055,26 @@ model PurchaseSupplier {
 }
 
 model PurchaseSupplierPayment {
-  id            String   @id @default(cuid())
+  id            String                @id @default(cuid())
   orgId         String
   supplierId    String
   purchaseId    String?
-  paymentDate   DateTime @db.Date
-  amount        Decimal  @db.Decimal(10, 2)
+  paymentDate   DateTime              @db.Date
+  amount        Decimal               @db.Decimal(10, 2)
   paymentMethod PurchasePaymentMethod @default(CASH_IN_COUNTER)
-  voucherPath   String?  @db.Text
-  billPaths     String?  @db.Text
-  voucherPaths  String?  @db.Text
-  notes         String?  @db.Text
+  voucherPath   String?               @db.Text
+  billPaths     String?               @db.Text
+  voucherPaths  String?               @db.Text
+  notes         String?               @db.Text
   createdById   String
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  org        Organization        @relation(fields: [orgId], references: [id])
-  supplier   PurchaseSupplier    @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  purchase   Purchase?           @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
-  createdBy  OrganizationMember  @relation("PurchasePaymentCreatedBy", fields: [createdById], references: [id])
+  org       Organization       @relation(fields: [orgId], references: [id])
+  supplier  PurchaseSupplier   @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  purchase  Purchase?          @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
+  createdBy OrganizationMember @relation("PurchasePaymentCreatedBy", fields: [createdById], references: [id])
 
   @@index([orgId])
   @@index([supplierId])
@@ -1062,7 +1087,7 @@ model DailyExpense {
   reportId   String
   type       ExpenseType
   particular String
-  amount     Decimal     @db.Decimal(10,2)
+  amount     Decimal     @db.Decimal(10, 2)
   partyName  String?
 
   maintenanceId String?
@@ -1080,7 +1105,6 @@ model DailyExpense {
   @@index([purchaseId])
 }
 
-
 // -------------------------------------------Raw Materials Model-------------------------------------------
 model RawMaterial {
   id          String  @id @default(cuid())
@@ -1089,9 +1113,9 @@ model RawMaterial {
   description String? @db.Text
   isActive    Boolean @default(true)
   createdById String
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   org       Organization       @relation(fields: [orgId], references: [id])
   createdBy OrganizationMember @relation("MaterialCreatedBy", fields: [createdById], references: [id])
@@ -1110,11 +1134,11 @@ model RawMaterial {
 
 // -------------------------------------------Material Rate Model-------------------------------------------
 model MaterialRate {
-  id                 String  @id @default(cuid())
+  id                 String   @id @default(cuid())
   orgId              String
   materialId         String
   referenceVehicleId String
-  basePrice          Decimal @db.Decimal(10, 2)
+  basePrice          Decimal  @db.Decimal(10, 2)
   setById            String
   setAt              DateTime @default(now())
 
@@ -1177,11 +1201,11 @@ model TripVehicle {
   org       Organization       @relation(fields: [orgId], references: [id])
   createdBy OrganizationMember @relation("TripVehicleCreatedBy", fields: [createdById], references: [id])
 
-  basePriceRates   MaterialRate[]       @relation("ReferenceVehicle")
-  calculatedRates  MaterialRateDetail[]
-  dailySaleItems   DailySaleItem[]
-  dailySaleEntries DailySaleEntry[]
-  creditPartyRates CreditPartyRate[]
+  basePriceRates     MaterialRate[]       @relation("ReferenceVehicle")
+  calculatedRates    MaterialRateDetail[]
+  dailySaleItems     DailySaleItem[]
+  dailySaleEntries   DailySaleEntry[]
+  creditPartyRates   CreditPartyRate[]
   creditTransactions CreditTransaction[]
 
   @@unique([orgId, vehicleModel])
@@ -1201,9 +1225,9 @@ model Orders {
   productName String
   size        String?
 
-  quantity Int
-  details  String? @db.Text
-  usedFor  String?
+  quantity     Int
+  details      String? @db.Text
+  usedFor      String?
   statusRemark String? @db.Text
 
   orderByStaffId  String
@@ -1211,10 +1235,10 @@ model Orders {
 
   status OrderStatus @default(PENDING)
 
-  informed    Boolean   @default(false)
+  informed    Boolean @default(false)
   checkedById String?
 
-  orderSentDate DateTime? @db.Date
+  orderSentDate     DateTime? @db.Date
   goodsReceivedDate DateTime? @db.Date
 
   verifiedById String?
@@ -1253,9 +1277,9 @@ model RawMaterialTrip {
 }
 
 model DailyTripRecord {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   orgId       String
-  date        DateTime  @db.Date
+  date        DateTime @db.Date
   staffId     String
   materialId  String?
   createdById String
@@ -1288,23 +1312,23 @@ model DailySalesReport {
   orgId String
   date  DateTime @db.Date
 
-  lastClosingAmount Decimal @db.Decimal(10,2) @default(0)
-  bankDepositParty  String?
-  bankDepositAmount Decimal @db.Decimal(10,2) @default(0)
-  customerDeposit   Decimal @db.Decimal(10,2) @default(0)
-  cashParticular    String?
-  cash              Decimal @db.Decimal(10,2) @default(0)
+  lastClosingAmount          Decimal @default(0) @db.Decimal(10, 2)
+  bankDepositParty           String?
+  bankDepositAmount          Decimal @default(0) @db.Decimal(10, 2)
+  customerDeposit            Decimal @default(0) @db.Decimal(10, 2)
+  cashParticular             String?
+  cash                       Decimal @default(0) @db.Decimal(10, 2)
   cashReceiveExtraParticular String?
-  cashReceiveExtra  Decimal @db.Decimal(10,2) @default(0)
-  onlineTransfer    Decimal @db.Decimal(10,2) @default(0)
-  voidCount         Int     @default(0)
-  closingBillNumber Int?
+  cashReceiveExtra           Decimal @default(0) @db.Decimal(10, 2)
+  onlineTransfer             Decimal @default(0) @db.Decimal(10, 2)
+  voidCount                  Int     @default(0)
+  closingBillNumber          Int?
 
-  totalExpenses    Decimal @db.Decimal(10,2) @default(0)
-  totalCashReceive Decimal @db.Decimal(10,2) @default(0)
-  todaysSales      Decimal @db.Decimal(10,2) @default(0)
-  totalCreditSales Decimal @db.Decimal(10,2) @default(0)
-  cashInCounter    Decimal @db.Decimal(10,2) @default(0)
+  totalExpenses    Decimal @default(0) @db.Decimal(10, 2)
+  totalCashReceive Decimal @default(0) @db.Decimal(10, 2)
+  todaysSales      Decimal @default(0) @db.Decimal(10, 2)
+  totalCreditSales Decimal @default(0) @db.Decimal(10, 2)
+  cashInCounter    Decimal @default(0) @db.Decimal(10, 2)
   billNumber       String? @unique
 
   status       ReportStatus @default(DRAFT)
@@ -1312,8 +1336,8 @@ model DailySalesReport {
   approvedById String?
   approvedAt   DateTime?
   createdById  String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
   org        Organization        @relation(fields: [orgId], references: [id])
   createdBy  OrganizationMember  @relation("SalesReportCreatedBy", fields: [createdById], references: [id])
@@ -1337,7 +1361,7 @@ model DailyBankDeposit {
   id       String  @id @default(cuid())
   reportId String
   party    String
-  amount   Decimal @db.Decimal(10,2)
+  amount   Decimal @db.Decimal(10, 2)
 
   report DailySalesReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
 
@@ -1350,8 +1374,8 @@ model DailySaleItem {
   materialId    String
   tripVehicleId String
   quantity      Int
-  rateUsed      Decimal @db.Decimal(10,2)
-  amount        Decimal @db.Decimal(10,2)
+  rateUsed      Decimal @db.Decimal(10, 2)
+  amount        Decimal @db.Decimal(10, 2)
   billNumber    String?
 
   report      DailySalesReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
@@ -1369,16 +1393,16 @@ model DailySaleEntry {
   materialId    String
   tripVehicleId String
   quantity      Int
-  rateUsed      Decimal  @db.Decimal(10,2)
-  amount        Decimal  @db.Decimal(10,2)
+  rateUsed      Decimal  @db.Decimal(10, 2)
+  amount        Decimal  @db.Decimal(10, 2)
   createdById   String
   createdAt     DateTime @default(now())
 
-  org         Organization        @relation(fields: [orgId], references: [id])
-  report      DailySalesReport?   @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  material    RawMaterial         @relation(fields: [materialId], references: [id])
-  tripVehicle TripVehicle         @relation(fields: [tripVehicleId], references: [id])
-  createdBy   OrganizationMember  @relation("SaleEntryCreatedBy", fields: [createdById], references: [id])
+  org         Organization       @relation(fields: [orgId], references: [id])
+  report      DailySalesReport?  @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  material    RawMaterial        @relation(fields: [materialId], references: [id])
+  tripVehicle TripVehicle        @relation(fields: [tripVehicleId], references: [id])
+  createdBy   OrganizationMember @relation("SaleEntryCreatedBy", fields: [createdById], references: [id])
 
   @@index([reportId])
   @@index([orgId, date])
@@ -1392,7 +1416,7 @@ model DailyCreditSale {
   partyName   String
   billNo      String?
   goodsName   String?
-  amount      Decimal  @db.Decimal(10,2)
+  amount      Decimal  @db.Decimal(10, 2)
   createdById String
   createdAt   DateTime @default(now())
 
@@ -1413,18 +1437,18 @@ model BillSequence {
 }
 
 model DailySalesReturns {
-  id          String   @id @default(cuid())
+  id          String      @id @default(cuid())
   orgId       String
   reportId    String?
-  date        DateTime @db.Date
+  date        DateTime    @db.Date
   partyName   String
   billNo      String?
   particular  String?
-  amount      Decimal  @db.Decimal(10,2)
+  amount      Decimal     @db.Decimal(10, 2)
   deductionBy DeductionBy
-  remarks     String?  @db.Text
+  remarks     String?     @db.Text
   createdById String
-  createdAt   DateTime @default(now())
+  createdAt   DateTime    @default(now())
 
   org       Organization       @relation(fields: [orgId], references: [id])
   report    DailySalesReport?  @relation(fields: [reportId], references: [id], onDelete: Cascade)
@@ -1444,13 +1468,13 @@ model CreditParty {
   contactPerson String?
   contactNo     String?
   balanceType   BalanceType @default(CREDIT)
-  creditBalance Decimal     @db.Decimal(12, 2) @default(0)
+  creditBalance Decimal     @default(0) @db.Decimal(12, 2)
   isActive      Boolean     @default(true)
   notes         String?     @db.Text
   createdById   String
 
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   org       Organization       @relation(fields: [orgId], references: [id])
   createdBy OrganizationMember @relation("CreditPartyCreatedBy", fields: [createdById], references: [id])

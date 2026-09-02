@@ -1,9 +1,16 @@
 const prisma = require("../config/db");
 const { AppError } = require("../lib/error");
+const {
+  storedBillPath,
+  removeStoredBillFile,
+  storedShopPaymentVoucherPaths,
+  removeStoredShopPaymentVoucherFile,
+} = require("../middleware/maintenanceUploads");
 
 const maintenanceInclude = {
   vehicle: { select: { id: true, VehicleModel: true, vehicleNo: true } },
   plant: { select: { id: true, name: true, location: true } },
+  shop: { select: { id: true, name: true, contactNo: true } },
   driverStaff: { select: { id: true, fullName: true, employeeCode: true } },
   createdBy: { select: { id: true, user: { select: { name: true } } } },
   reviewedBy: { select: { id: true, user: { select: { name: true } } } },
@@ -81,7 +88,7 @@ const findMaintenance = async (orgId, id) => {
   return serialize(record);
 };
 
-const assertAsset = async (orgId, { vehicleId, plantId }) => {
+const assertAsset = async (orgId, { vehicleId, plantId, shopId }) => {
   if (vehicleId) {
     const vehicle = await prisma.vehicle.findFirst({ where: { id: vehicleId, orgId } });
     if (!vehicle) throw new AppError(400, "Select a valid vehicle.");
@@ -90,30 +97,101 @@ const assertAsset = async (orgId, { vehicleId, plantId }) => {
     const plant = await prisma.plant.findFirst({ where: { id: plantId, orgId } });
     if (!plant) throw new AppError(400, "Select a valid plant.");
   }
+  if (shopId) {
+    const shop = await prisma.maintenanceShop.findFirst({ where: { id: shopId, orgId } });
+    if (!shop) throw new AppError(400, "Select a valid maintenance shop.");
+  }
 };
 
-const createMaintenance = async ({ orgId, memberId, data }) => {
+/*
+ * `initialPaymentDate`/`initialPaymentAmount` are deliberately separate from
+ * `paymentDate` above (the job's own "bill settled" date, which drives the
+ * Daily Sales expense and unlocks voucher-photo upload — see uploadVouchers
+ * below). This one only ever creates a MaintenanceShopPayment ledger row
+ * against the shop, mirroring how createPurchase optionally creates a
+ * PurchaseSupplierPayment alongside the purchase itself — it never touches
+ * the job's own paymentDate/voucherPhotos fields.
+ */
+const createMaintenance = async ({ orgId, memberId, data, files }) => {
   await assertAsset(orgId, data);
 
-  const record = await prisma.vehicleMaintenance.create({
-    data: {
-      orgId,
-      vehicleId: data.vehicleId ?? null,
-      plantId: data.plantId ?? null,
-      driverStaffId: data.driverStaffId ?? null,
-      maintenanceDate: asDate(data.maintenanceDate),
-      paymentDate: asDate(data.paymentDate),
-      odometer: data.odometer ?? null,
-      nextServiceDate: asDate(data.nextServiceDate),
-      notes: data.notes ?? null,
-      totalCost: sumTotal(data.items),
-      createdById: memberId,
-      items: { create: itemsWithTotals(data.items) },
-    },
-    include: maintenanceInclude,
-  });
+  const totalCost = sumTotal(data.items);
+  const billFile = files?.billFile?.[0];
+  const voucherFile = files?.voucherFile?.[0];
+  if (!billFile) throw new AppError(400, "Bill upload is required.");
 
-  return serialize(record);
+  // Mirrors maintenanceshop.service.js#cheque — a cheque payment carries its
+  // value in initialChequeAmount (the client disables the plain amount field
+  // in that mode) and is mirrored into paidamount below so the maintenance
+  // record's outstanding due treats it exactly like cash.
+  const isInitialCheque = data.initialPaymentMethod === "CHEQUE";
+  const initialPaidAmount = isInitialCheque ? data.initialChequeAmount : data.initialPaymentAmount;
+  const hasInitialPayment = Boolean(data.initialPaymentDate || data.initialPaymentAmount || data.initialChequeAmount || voucherFile);
+  if (hasInitialPayment) {
+    if (!data.initialPaymentDate) throw new AppError(400, "Payment date is required when recording an initial payment.");
+    if (isInitialCheque) {
+      if (!data.initialChequeAmount) throw new AppError(400, "Cheque amount must be greater than zero.");
+      if (!data.initialChequeDetail) throw new AppError(400, "Enter the cheque detail.");
+    } else if (!data.initialPaymentAmount) {
+      throw new AppError(400, "Payment amount must be greater than zero.");
+    }
+    if (initialPaidAmount > totalCost) throw new AppError(400, "Payment amount cannot exceed the maintenance total.");
+    if (!voucherFile) throw new AppError(400, "Voucher upload is required when recording a payment.");
+  }
+
+  const billFilePath = billFile ? storedBillPath(billFile) : null;
+  const voucherFilePath = voucherFile ? storedShopPaymentVoucherPaths([voucherFile])[0] : null;
+
+  try {
+    const record = await prisma.$transaction(async (tx) => {
+      const created = await tx.vehicleMaintenance.create({
+        data: {
+          orgId,
+          vehicleId: data.vehicleId ?? null,
+          plantId: data.plantId ?? null,
+          shopId: data.shopId,
+          driverStaffId: data.driverStaffId ?? null,
+          maintenanceDate: asDate(data.maintenanceDate),
+          paymentDate: asDate(data.paymentDate),
+          paymentMethod: data.paymentMethod,
+          odometer: data.odometer ?? null,
+          nextServiceDate: asDate(data.nextServiceDate),
+          notes: data.notes ?? null,
+          billPath: billFilePath,
+          totalCost,
+          createdById: memberId,
+          items: { create: itemsWithTotals(data.items) },
+        },
+        include: maintenanceInclude,
+      });
+
+      if (hasInitialPayment) {
+        await tx.maintenanceShopPayment.create({
+          data: {
+            orgId,
+            shopId: data.shopId,
+            maintenanceId: created.id,
+            paymentDate: asDate(data.initialPaymentDate),
+            paidamount: initialPaidAmount,
+            remainingamount: Number((totalCost - initialPaidAmount).toFixed(2)),
+            paymentMethod: data.initialPaymentMethod,
+            chequedetail: isInitialCheque ? data.initialChequeDetail : null,
+            chequeamount: isInitialCheque ? data.initialChequeAmount : null,
+            voucherPaths: JSON.stringify([voucherFilePath]),
+            createdById: memberId,
+          },
+        });
+      }
+
+      return created;
+    });
+
+    return serialize(record);
+  } catch (error) {
+    if (billFilePath) removeStoredBillFile(billFilePath);
+    if (voucherFilePath) removeStoredShopPaymentVoucherFile(voucherFilePath);
+    throw error;
+  }
 };
 
 const updateMaintenance = async ({ orgId, id, data }) => {
@@ -124,9 +202,11 @@ const updateMaintenance = async ({ orgId, id, data }) => {
   const updateData = {};
   if (data.vehicleId !== undefined) updateData.vehicleId = data.vehicleId;
   if (data.plantId !== undefined) updateData.plantId = data.plantId;
+  if (data.shopId !== undefined) updateData.shopId = data.shopId;
   if (data.driverStaffId !== undefined) updateData.driverStaffId = data.driverStaffId;
   if (data.maintenanceDate !== undefined) updateData.maintenanceDate = asDate(data.maintenanceDate);
   if (data.paymentDate !== undefined) updateData.paymentDate = asDate(data.paymentDate);
+  if (data.paymentMethod !== undefined) updateData.paymentMethod = data.paymentMethod;
   if (data.odometer !== undefined) updateData.odometer = data.odometer;
   if (data.nextServiceDate !== undefined) updateData.nextServiceDate = asDate(data.nextServiceDate);
   if (data.notes !== undefined) updateData.notes = data.notes;
@@ -176,6 +256,27 @@ const uploadVouchers = async ({ orgId, id, keepPhotos, newPhotoPaths }) => {
   return serialize(record);
 };
 
+/*
+ * Uploads (or replaces, or clears) the shop's bill/invoice for this job.
+ * Kept as its own endpoint rather than a field on create/update, the same
+ * way voucher photos are — the record can exist before the paper bill is in
+ * hand, and a re-upload here doesn't need to touch the rest of the form.
+ */
+const uploadBill = async ({ orgId, id, billFilePath, clearBill }) => {
+  const existing = await prisma.vehicleMaintenance.findFirst({ where: { id, orgId } });
+  if (!existing) throw notFound("Maintenance record");
+
+  if ((billFilePath || clearBill) && existing.billPath) removeStoredBillFile(existing.billPath);
+
+  const record = await prisma.vehicleMaintenance.update({
+    where: { id },
+    data: { billPath: billFilePath ?? (clearBill ? null : undefined) },
+    include: maintenanceInclude,
+  });
+
+  return serialize(record);
+};
+
 const reviewMaintenance = async ({ orgId, memberId, id, reviewNote }) => {
   const existing = await prisma.vehicleMaintenance.findFirst({ where: { id, orgId } });
   if (!existing) throw notFound("Maintenance record");
@@ -219,6 +320,7 @@ module.exports = {
   createMaintenance,
   updateMaintenance,
   uploadVouchers,
+  uploadBill,
   reviewMaintenance,
   deleteMaintenance,
   stats,

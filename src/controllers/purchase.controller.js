@@ -43,14 +43,6 @@ const updatePurchase = respond((request) => purchaseService.updatePurchase({
   files: request.files,
 }));
 
-const createPurchasePayment = respond((request) => purchaseService.createPurchasePayment({
-  orgId: request.auth.orgId,
-  memberId: request.auth.memberId,
-  id: request.params.id,
-  data: request.body,
-  files: request.files,
-}), 201);
-
 const reviewPurchase = respond((request) => purchaseService.reviewPurchase({
   orgId: request.auth.orgId,
   memberId: request.auth.memberId,
@@ -58,4 +50,4 @@ const reviewPurchase = respond((request) => purchaseService.reviewPurchase({
   data: request.body,
 }));
 
-module.exports = { listPurchases, createPurchase, updatePurchase, createPurchasePayment, reviewPurchase };
+module.exports = { listPurchases, createPurchase, updatePurchase, reviewPurchase };

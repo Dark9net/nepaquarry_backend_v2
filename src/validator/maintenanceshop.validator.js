@@ -41,9 +41,39 @@ const statusSchema = z.object({
  *
  * `remainingamount` is intentionally absent — the service derives it.
  */
+// Shared by every payment schema below: exactly one of "cash amount" or
+// "cheque amount + detail" must be present, matching whichever paymentMethod
+// was chosen.
+const chequeCashRefinement = (value, ctx) => {
+  if (value.paymentMethod === "CHEQUE") {
+    if (value.chequeamount === undefined) {
+      ctx.addIssue({ code: "custom", path: ["chequeamount"], message: "Cheque amount is required" });
+    }
+    if (!value.chequedetail) {
+      ctx.addIssue({ code: "custom", path: ["chequedetail"], message: "Cheque detail is required" });
+    }
+    return;
+  }
+
+  // CASH: the cheque fields must not be smuggled in alongside it, or a row
+  // could claim a cheque value that no cheque backs.
+  if (value.paidamount === undefined) {
+    ctx.addIssue({ code: "custom", path: ["paidamount"], message: "Amount must be greater than 0" });
+  }
+  if (value.chequeamount !== undefined || value.chequedetail) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["chequeamount"],
+      message: "Cheque details apply only to cheque payments",
+    });
+  }
+};
+
+// No `maintenanceId` here — the service allocates the amount across the
+// shop's own oldest unpaid maintenance records automatically rather than
+// against one record picked by the client.
 const paymentSchema = z.object({
   shopId:        z.string().trim().min(1, "Shop is required"),
-  maintenanceId: z.union([z.string().trim().min(1), z.null()]).optional(),
   paymentDate:   dateOnly,
   paidamount:    z.coerce.number().positive("Amount must be greater than 0").max(99999999.99).optional(),
   paymentMethod: z.enum(["CASH", "CHEQUE"]).default("CASH"),
@@ -52,30 +82,7 @@ const paymentSchema = z.object({
   remarks:       optionalText(1000),
 })
   .strict()
-  .superRefine((value, ctx) => {
-    if (value.paymentMethod === "CHEQUE") {
-      if (value.chequeamount === undefined) {
-        ctx.addIssue({ code: "custom", path: ["chequeamount"], message: "Cheque amount is required" });
-      }
-      if (!value.chequedetail) {
-        ctx.addIssue({ code: "custom", path: ["chequedetail"], message: "Cheque detail is required" });
-      }
-      return;
-    }
-
-    // CASH: the cheque fields must not be smuggled in alongside it, or a row
-    // could claim a cheque value that no cheque backs.
-    if (value.paidamount === undefined) {
-      ctx.addIssue({ code: "custom", path: ["paidamount"], message: "Amount must be greater than 0" });
-    }
-    if (value.chequeamount !== undefined || value.chequedetail) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["chequeamount"],
-        message: "Cheque details apply only to cheque payments",
-      });
-    }
-  });
+  .superRefine(chequeCashRefinement);
 
 const validate = (schema) => (request, _response, next) => {
   const result = schema.safeParse(request.body);

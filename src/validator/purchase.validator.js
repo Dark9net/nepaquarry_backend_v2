@@ -24,13 +24,6 @@ const purchaseCreateSchema = z.object({
 
 const purchaseUpdateSchema = purchaseCreateSchema;
 
-const purchasePaymentSchema = z.object({
-  paymentDate:   dateOnly,
-  paymentAmount: z.coerce.number().positive().max(100_000_000),
-  paymentMethod: z.enum(["CREDIT", "CHEQUE", "CASH_IN_COUNTER"]),
-  notes:         optionalText(1000),
-}).strict();
-
 const purchaseReviewSchema = z.object({
   reviewNote: optionalText(1000),
 }).strict();
@@ -51,6 +44,5 @@ const validate = (schema) => (request, _response, next) => {
 module.exports = {
   validatePurchaseCreate: validate(purchaseCreateSchema),
   validatePurchaseUpdate: validate(purchaseUpdateSchema),
-  validatePurchasePayment: validate(purchasePaymentSchema),
   validatePurchaseReview: validate(purchaseReviewSchema),
 };
