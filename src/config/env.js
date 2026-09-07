@@ -47,11 +47,6 @@ const env = {
   FRONTEND_URL: required("FRONTEND_URL", process.env.FRONTEND_URL),
   // Direct MySQL connection used by the driver adapter and by migrations.
   DATABASE_URL: required("DATABASE_URL", process.env.DATABASE_URL),
-  // Optional Prisma Accelerate connection string. When set, queries are routed
-  // through Accelerate's pooler/cache instead of connecting to MySQL directly.
-  // Accelerate issues `prisma://` (or `prisma+postgres://`) URLs; anything else
-  // is treated as a direct connection. See src/config/db.js.
-  PRISMA_ACCELERATE_URL: process.env.PRISMA_ACCELERATE?.trim() || null,
   JWT: {
     ACCESS_SECRET: required("JWT_SECRET", process.env.JWT_SECRET),
     REFRESH_SECRET: required("JWT_REFRESH_TOKEN", process.env.JWT_REFRESH_TOKEN),
