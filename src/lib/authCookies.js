@@ -16,7 +16,13 @@ const deriveKey = (purpose) =>
     .digest("hex");
 
 const cookieKeys = new Keygrip([deriveKey("signature")], "sha384", "base64");
-const cookieJar = (request, response) => new Cookies(request, response, { keys: cookieKeys });
+// cPanel terminates TLS at Apache/LiteSpeed before proxying to this Node
+// process. In production the browser connection is HTTPS even when Node sees
+// the upstream socket as HTTP, so tell `cookies` to retain the Secure flag.
+const cookieJar = (request, response) => new Cookies(request, response, {
+  keys: cookieKeys,
+  secure: isProduction,
+});
 
 const commonOptions = {
   httpOnly: true,
