@@ -861,7 +861,7 @@ CREATE TABLE `OrganizationMember` (
   `id` varchar(191) NOT NULL,
   `userId` varchar(191) NOT NULL,
   `orgId` varchar(191) NOT NULL,
-  `role` enum('ADMIN','SUPERVISOR','PROCUREMENT','EMPLOYEE','GUEST') NOT NULL,
+  `role` enum('ADMIN','SUPERVISOR','PROCUREMENT','EMPLOYEE','GUEST', 'PURCHASE_STAFF') NOT NULL,
   `isActive` tinyint(1) NOT NULL DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
