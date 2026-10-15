@@ -28,6 +28,8 @@ router.use(authenticate);
 
 router.get("/maintenance-shops", controller.listShops);
 router.get("/maintenance-shops/:id", controller.getShop);
+router.get("/maintenance-shops/:id/jobs", controller.listShopJobs);
+router.get("/maintenance-shops/:id/payments", controller.listShopPayments);
 router.post("/maintenance-shops", requireManage, validateShop, controller.createShop);
 router.put("/maintenance-shops/:id", requireManage, validateShop, controller.updateShop);
 router.patch("/maintenance-shops/:id/status", requireManage, validateShopStatus, controller.setShopStatus);

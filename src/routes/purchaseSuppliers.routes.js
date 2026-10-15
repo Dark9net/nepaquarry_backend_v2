@@ -13,6 +13,8 @@ const requireManage = (request, _response, next) =>
 router.use(authenticate);
 router.get("/purchase-suppliers", controller.listSuppliers);
 router.get("/purchase-suppliers/:id", controller.getSupplier);
+router.get("/purchase-suppliers/:id/purchases", controller.listSupplierPurchases);
+router.get("/purchase-suppliers/:id/payments", controller.listSupplierPayments);
 router.post("/purchase-suppliers", requireManage, validateSupplier, controller.createSupplier);
 router.put("/purchase-suppliers/:id", requireManage, validateSupplier, controller.updateSupplier);
 router.patch("/purchase-suppliers/:id/status", requireManage, validateSupplierStatus, controller.setSupplierStatus);

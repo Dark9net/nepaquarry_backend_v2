@@ -38,6 +38,7 @@ const createPurchase = respond((request) => purchaseService.createPurchase({
 
 const updatePurchase = respond((request) => purchaseService.updatePurchase({
   orgId: request.auth.orgId,
+  memberId: request.auth.memberId,
   id: request.params.id,
   data: request.body,
   files: request.files,

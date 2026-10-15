@@ -51,6 +51,54 @@ const findSupplier = async (orgId, id) => {
   return withTotals(supplier);
 };
 
+// One supplier's purchase and payment history, a page at a time, for the
+// account view's tables. Same includes and ordering as `supplierInclude`
+// (plus a tie-breaker so pages stay stable).
+const assertSupplierInOrg = async (orgId, id) => {
+  const supplier = await prisma.purchaseSupplier.findFirst({ where: { id, orgId }, select: { id: true } });
+  if (!supplier) throw notFound();
+};
+
+const toPage = (data, total, { page, limit }) => ({
+  data,
+  total,
+  page,
+  limit,
+  totalPages: Math.max(1, Math.ceil(total / limit)),
+});
+
+const listSupplierPurchases = async (orgId, id, pagination) => {
+  await assertSupplierInOrg(orgId, id);
+  const where = { orgId, supplierId: id };
+  const [total, data] = await prisma.$transaction([
+    prisma.purchase.count({ where }),
+    prisma.purchase.findMany({
+      where,
+      include: supplierInclude.purchases.include,
+      orderBy: [{ purchaseDate: "desc" }, { createdAt: "desc" }],
+      skip: (pagination.page - 1) * pagination.limit,
+      take: pagination.limit,
+    }),
+  ]);
+  return toPage(data, total, pagination);
+};
+
+const listSupplierPayments = async (orgId, id, pagination) => {
+  await assertSupplierInOrg(orgId, id);
+  const where = { orgId, supplierId: id };
+  const [total, data] = await prisma.$transaction([
+    prisma.purchaseSupplierPayment.count({ where }),
+    prisma.purchaseSupplierPayment.findMany({
+      where,
+      include: supplierInclude.payments.include,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip: (pagination.page - 1) * pagination.limit,
+      take: pagination.limit,
+    }),
+  ]);
+  return toPage(data, total, pagination);
+};
+
 const assertUniqueName = async (orgId, name, excludeId) => {
   const existing = await prisma.purchaseSupplier.findFirst({
     where: { orgId, name, ...(excludeId ? { id: { not: excludeId } } : {}) },
@@ -177,4 +225,4 @@ const createSupplierPayment = async ({ orgId, memberId, id, data, files }) => {
   }
 };
 
-module.exports = { listSuppliers, findSupplier, createSupplier, updateSupplier, setSupplierStatus, createSupplierPayment };
+module.exports = { listSuppliers, findSupplier, listSupplierPurchases, listSupplierPayments, createSupplier, updateSupplier, setSupplierStatus, createSupplierPayment };

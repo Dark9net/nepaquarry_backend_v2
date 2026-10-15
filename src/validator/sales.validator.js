@@ -116,7 +116,7 @@ const initReportQuerySchema = z.object({
 const summaryQuerySchema = z.object({
   month: z.coerce.number().int().min(1).max(12).optional(),
   year: z.coerce.number().int().min(2000).max(2100),
-  view: z.enum(["daily", "weekly", "monthly"]),
+  view: z.enum(["daily", "weekly", "monthly", "yearly"]),
 });
 
 const validateBody = (schema) => (request, _response, next) => {

@@ -5,6 +5,7 @@ const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be a valid d
 const hourCount = z.union([z.number(), z.null()]).optional();
 
 const tripEntryUpsertSchema = z.object({
+  id: z.string().trim().min(1).optional(),
   date: dateOnly,
   staffId: z.string().trim().min(1, "Driver is required"),
   materialId: z.string().trim().min(1).optional(),

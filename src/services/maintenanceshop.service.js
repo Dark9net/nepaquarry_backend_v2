@@ -110,6 +110,58 @@ const findShop = async (orgId, id) => {
   return withTotals(shop);
 };
 
+const assertShopInOrg = async (orgId, id) => {
+  const shop = await prisma.maintenanceShop.findFirst({ where: { id, orgId }, select: { id: true } });
+  if (!shop) throw notFound();
+};
+
+const toPage = (data, total, { page, limit }) => ({
+  data,
+  total,
+  page,
+  limit,
+  totalPages: Math.max(1, Math.ceil(total / limit)),
+});
+
+// One shop's jobs, a page at a time, for the shop ledger's Jobs tab. Same
+// fields and ordering as `shopInclude.maintenanceRecords`.
+const listShopJobs = async (orgId, id, { page, limit }) => {
+  await assertShopInOrg(orgId, id);
+  const where = { orgId, shopId: id };
+  const [total, data] = await prisma.$transaction([
+    prisma.vehicleMaintenance.count({ where }),
+    prisma.vehicleMaintenance.findMany({
+      where,
+      select: shopInclude.maintenanceRecords.select,
+      orderBy: [{ maintenanceDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+  ]);
+  return toPage(data, total, { page, limit });
+};
+
+// One shop's payment history a page at a time, for the shop ledger's
+// Payments tab. Same include and ordering as `listPayments`, plus a
+// tie-breaker so pages stay stable.
+const listShopPayments = async (orgId, id, { page, limit }) => {
+  await assertShopInOrg(orgId, id);
+
+  const where = { orgId, shopId: id };
+  const [total, data] = await prisma.$transaction([
+    prisma.maintenanceShopPayment.count({ where }),
+    prisma.maintenanceShopPayment.findMany({
+      where,
+      include: paymentInclude,
+      orderBy: [{ paymentDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+  ]);
+
+  return toPage(data, total, { page, limit });
+};
+
 const assertUniqueName = async (orgId, name, excludeId) => {
   const existing = await prisma.maintenanceShop.findFirst({
     where: { orgId, name, ...(excludeId ? { id: { not: excludeId } } : {}) },
@@ -373,6 +425,8 @@ module.exports = {
   createShop,
   updateShop,
   setShopStatus,
+  listShopJobs,
+  listShopPayments,
   listPayments,
   createPayment,
   updatePayment,

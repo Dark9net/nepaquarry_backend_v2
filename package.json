@@ -1,6 +1,6 @@
 {
   "name": "nepaquarry",
-  "version": "8.0.0",
+  "version": "9.0.3",
   "description": "Backend for Nepaquarry",
   "license": "ISC",
   "author": "Avi",
@@ -11,10 +11,7 @@
     "build": "tsc",
     "build:cpanel": "npm run db:generate && npm run build",
     "start": "node dist/server.js",
-    "start:cpanel": "npm run build:cpanel && npm run start",
-    "db:generate": "prisma generate",
-    "db:push": "prisma db push",
-    "db:migrate": "prisma migrate dev"
+    "start:cpanel": "npm run build:cpanel && npm run start"
   },
   "dependencies": {
     "@prisma/adapter-mariadb": "^7.9.1",

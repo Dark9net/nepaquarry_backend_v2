@@ -843,12 +843,22 @@ const kathmanduTodayUtc = () => {
   return new Date(Date.UTC(Number(byType.year), Number(byType.month) - 1, Number(byType.day)));
 };
 
-const summaryDateRange = (view) => {
+const summaryDateRange = (view, year) => {
   const today = kathmanduTodayUtc();
   const previousDay = addUtcDays(today, -1);
 
   if (view === "daily") {
     return { gte: previousDay, lte: previousDay };
+  }
+
+  // Uses the requested year so the dashboard can chart past years, falling
+  // back to the current year when none is given.
+  if (view === "yearly") {
+    const targetYear = Number(year) || today.getUTCFullYear();
+    return {
+      gte: new Date(Date.UTC(targetYear, 0, 1)),
+      lte: new Date(Date.UTC(targetYear, 11, 31)),
+    };
   }
 
   if (view === "weekly") {
@@ -867,7 +877,7 @@ const summaryDateRange = (view) => {
 };
 
 const getSummaryService = async (orgId, filters) => {
-  const where = { orgId, date: summaryDateRange(filters.view) };
+  const where = { orgId, date: summaryDateRange(filters.view, filters.year) };
 
   const reports = await prisma.dailySalesReport.findMany({
     where,
@@ -881,6 +891,11 @@ const getSummaryService = async (orgId, filters) => {
           material: { select: { id: true, name: true } },
         },
       },
+      // Credit sales per material, for the dashboard's credit sales lines.
+      creditTransactions: {
+        select: { trips: true, amount: true, materialId: true, material: { select: { id: true, name: true } } },
+      },
+      creditSales: { select: { amount: true, goodsName: true } },
     },
     orderBy: { date: "asc" },
   });

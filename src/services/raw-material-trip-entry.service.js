@@ -137,9 +137,6 @@ const paginateArray = (items, pagination) => {
   return { data: items.slice(start, start + limit), total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
 };
 
-const findExisting = (orgId, date, staffId) =>
-  prisma.dailyTripRecord.findFirst({ where: { orgId, date: asDate(date), staffId } });
-
 const upsertTrip = async ({ orgId, memberId, data }) => {
   const staff = await prisma.staff.findFirst({ where: { id: data.staffId, orgId } });
   if (!staff) throw new AppError(400, "Select a valid driver.");
@@ -156,7 +153,15 @@ const upsertTrip = async ({ orgId, memberId, data }) => {
   if (entries.length === 0) throw new AppError(400, "Please add at least one hour.");
 
   const dailyTotal = entries.reduce((sum, entry) => sum + entry.tripCount, 0);
-  const existing = await findExisting(orgId, data.date, data.staffId);
+
+  // Only an explicit edit (record id) updates an existing row. A new entry for
+  // a driver who already has one today is saved as its own row, so earlier
+  // entries on the same date are kept rather than overwritten.
+  let existing = null;
+  if (data.id) {
+    existing = await prisma.dailyTripRecord.findFirst({ where: { id: data.id, orgId } });
+    if (!existing) throw notFound("Trip record");
+  }
 
   return prisma.$transaction(async (tx) => {
     let record;
@@ -166,6 +171,7 @@ const upsertTrip = async ({ orgId, memberId, data }) => {
       record = await tx.dailyTripRecord.update({
         where: { id: existing.id },
         data: {
+          staffId: data.staffId,
           materialId: data.materialId || null,
           dailyTotal,
           updatedById: memberId,

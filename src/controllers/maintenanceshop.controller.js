@@ -31,6 +31,19 @@ const createShop = respond((request) => shopsService.createShop({ orgId: request
 const updateShop = respond((request) => shopsService.updateShop({ orgId: request.auth.orgId, id: request.params.id, data: request.body }));
 const setShopStatus = respond((request) => shopsService.setShopStatus({ orgId: request.auth.orgId, id: request.params.id, isActive: request.body.isActive }));
 
+// A shop's own jobs / payment history page through 10 rows by default (max 100).
+const parseHistoryPage = (query) => {
+  const page = Number.parseInt(query.page, 10);
+  const limit = Number.parseInt(query.limit, 10);
+  return {
+    page: Number.isInteger(page) && page > 0 ? page : 1,
+    limit: Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 10,
+  };
+};
+
+const listShopJobs = respond((request) => shopsService.listShopJobs(request.auth.orgId, request.params.id, parseHistoryPage(request.query)));
+const listShopPayments = respond((request) => shopsService.listShopPayments(request.auth.orgId, request.params.id, parseHistoryPage(request.query)));
+
 const listPayments = respond((request) => shopsService.listPayments(request.auth.orgId, { shopId: request.query.shopId }));
 const createPayment = respond((request) => shopsService.createPayment({
   orgId: request.auth.orgId,
@@ -47,6 +60,8 @@ module.exports = {
   createShop,
   updateShop,
   setShopStatus,
+  listShopJobs,
+  listShopPayments,
   listPayments,
   createPayment,
   updatePayment,

@@ -313,16 +313,17 @@ CREATE TABLE `DailySaleItem` (
   `quantity` int(11) NOT NULL,
   `rateUsed` decimal(10,2) NOT NULL,
   `amount` decimal(10,2) NOT NULL,
-  `billNumber` varchar(191) DEFAULT NULL
+  `billNumber` varchar(191) DEFAULT NULL,
+  `createdAt` datetime(3) NOT NULL DEFAULT current_timestamp(3),
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- Dumping data for table `DailySaleItem`
 --
 
-INSERT INTO `DailySaleItem` (`id`, `reportId`, `materialId`, `tripVehicleId`, `quantity`, `rateUsed`, `amount`, `billNumber`) VALUES
-('cmtmkhp3l0027ug6oks9lz3tb', 'cmtmkhp37001zug6ou3m23gaw', 'cmtkbudrf0009ug6oye6270bw', 'cmtkc9dw0000qug6ovy1atmjh', 50, 9000.00, 450000.00, NULL),
-('cmtmkhp3l0028ug6ol7iiuf1h', 'cmtmkhp37001zug6ou3m23gaw', 'cmtkbudrf0009ug6oye6270bw', 'cmtkcacz3000tug6omcx7a7zy', 50, 5800.00, 290000.00, NULL);
+INSERT INTO `DailySaleItem` (`id`, `reportId`, `materialId`, `tripVehicleId`, `quantity`, `rateUsed`, `amount`, `billNumber`, `createdAt`) VALUES
+('cmtmkhp3l0027ug6oks9lz3tb', 'cmtmkhp37001zug6ou3m23gaw', 'cmtkbudrf0009ug6oye6270bw', 'cmtkc9dw0000qug6ovy1atmjh', 50, 9000.00, 450000.00, NULL, '2026-09-04 06:15:27.600'),
+('cmtmkhp3l0028ug6ol7iiuf1h', 'cmtmkhp37001zug6ou3m23gaw', 'cmtkbudrf0009ug6oye6270bw', 'cmtkcacz3000tug6omcx7a7zy', 50, 5800.00, 29000.00, NULL, '2026-₀9-₀4 ₀6:15:29.27₀');
 
 -- --------------------------------------------------------
 
@@ -804,7 +805,7 @@ CREATE TABLE `Orders` (
   `statusRemark` text DEFAULT NULL,
   `orderByStaffId` varchar(191) NOT NULL,
   `orderToMemberId` varchar(191) NOT NULL,
-  `status` enum('PENDING','SENT','RECEIVED','CANCELLED') NOT NULL DEFAULT 'PENDING',
+  `status` enum('PENDING','INFORMED','PROCUREMENT_RECEIVED','ORDER_SENT', 'RECEIVED', 'VERIFIED', 'NEEDS_CLARIFICATION', 'REJECTED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
   `informed` tinyint(1) NOT NULL DEFAULT 0,
   `checkedById` varchar(191) DEFAULT NULL,
   `orderSentDate` date DEFAULT NULL,
@@ -1248,7 +1249,7 @@ CREATE TABLE `Purchase` (
   `paymentAmount` decimal(10,2) DEFAULT NULL,
   `voucherPath` varchar(191) DEFAULT NULL,
   `status` enum('PENDING','REVIEWED') NOT NULL DEFAULT 'PENDING',
-  `reviewedById` varchar(30) DEFAULT NULL,
+  `reviewedById` varchar(191) DEFAULT NULL,
   `reviewedAt` datetime(3) DEFAULT NULL,
   `reviewNote` varchar(191) DEFAULT NULL,
   `createdAt` datetime(3) NOT NULL DEFAULT current_timestamp(3),
